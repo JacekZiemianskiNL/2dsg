@@ -86,9 +86,9 @@ packages/
 
 ## UI
 
-- **Frontend (public) pages** live in `packages/app/src/app/(frontend)/` and use Tailwind CSS utility classes.
+- **Frontend (public) pages** use Tailwind CSS utility classes and live in persona route groups: `(marketing)/` (landing, exists now), then `(auth)/`, `(student)/` and `(mentor)/`, each created with its first page. Page files default-export `<Segment>Page`, e.g. `HomePage` or `SessionsPage`.
 - **Backend (admin) pages** live in `packages/app/src/app/(backend)/admin/`, are served under `/admin`, and are built from shadcn/ui components.
-- Add shadcn/ui components by running `npx shadcn@latest add <component>` from `packages/app`. The CLI writes them to `packages/ui/src/components/`. Import them as `@devmentor/ui/components/<name>`. Don't run `shadcn init`: it overwrites the monorepo `components.json`. Never copy shadcn components into `packages/app`. Change generated components only when you're deliberately customizing them.
+- Add shadcn/ui components by running `npx shadcn@latest add <component>` from `packages/app`. The CLI writes them to `packages/ui/src/components/ui/`. Import them as `@devmentor/ui/components/ui/<name>`. They're never hand-written. Don't run `shadcn init`: it overwrites the monorepo `components.json`. Never copy shadcn components into `packages/app`. Change generated components only when you're deliberately customizing them.
 - One Tailwind CSS 4 setup (CSS-first config) is shared by both areas: `packages/ui/src/styles/globals.css`, imported once by the root layout as `@devmentor/ui/globals.css`. It holds the theme tokens and the `@source` entries for `packages/ui` and `packages/app`. Don't add other global stylesheets.
 - Merge class names with `cn` from `@devmentor/ui/lib/utils`.
 - Default to Server Components; add `"use client"` only when a component needs state, effects or browser APIs, and keep it as low in the tree as possible.

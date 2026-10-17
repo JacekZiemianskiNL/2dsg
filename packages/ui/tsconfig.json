@@ -2,7 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "../../test/setup-dom.ts"
   ],
   "compilerOptions": {
     "paths": {

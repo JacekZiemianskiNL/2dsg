@@ -1,5 +1,5 @@
 // Public (frontend) pages use plain Tailwind CSS utilities.
-export default function Home() {
+export default function HomePage() {
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 px-6 text-center">
       <p className="rounded-full border px-3 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">

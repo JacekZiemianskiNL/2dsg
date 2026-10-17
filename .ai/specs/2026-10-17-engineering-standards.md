@@ -140,7 +140,7 @@ Done when:
 | 1 | Done 2026-10-17 | lint, typecheck and build pass. 11 throwaway boundary/code-quality violations all fail lint, and allowed imports pass. Dev: `/`, `/admin` (Operational), `/api/health` 200. Database down: `/admin` "Unavailable", `/api/health` 503, failure logged as pino JSON. The migration CLI still works. |
 | 2 | Done 2026-10-17 | Vitest 5 projects for core, db (node) and ui (jsdom); 13 env tests pass. `npm run audit` passes only through the allowlist, and exits 1 when the entry is removed, expired or stale. `npm run validate` exits 0. |
 | 3 | Done 2026-10-17 | 52 tests pass. `/api/health` returns the envelope (200 / 503); a bad `DATABASE_URL` gives a generic logged 500; POST gives 405. `/admin`: Operational / Unavailable. Connections stay at 1 across HMR. `npm run validate` exits 0. |
-| 4 | Not started | |
+| 4 | Done 2026-10-17 | 81 tests pass. A lint probe catches all 6 `fetch` variants in app and ui. `/` and `/admin` screenshots are correct: `/admin` shows Operational with the database up and Unavailable (in red) with it down, with no console errors beyond the expected 503 notice. `/admin` is now statically prerendered. |
 | 5 | Not started | |
 
 ### Phase 1 notes
@@ -173,6 +173,18 @@ Done when:
 - **Logger:** `getLogger()` is process-wide and also registered in the container. It only needs `LOG_LEVEL`, so configuration errors can still be logged.
 - **Bug found and fixed:** the container was cached on `globalThis`, which served stale classes after HMR (dev 500) and mixed class identities across Next's route and page bundles (`/admin` 500 when the database was down). It's now cached per module. See `.ai/lessons/2026-10-17-no-globalthis-container.md`.
 - **Test helper:** `captureLogs` lives in `packages/core/src/testing/`. A shared root `test/` helper would break `import/no-relative-packages`, which is correct.
+
+### Phase 4 notes
+
+- **shadcn primitives:** the `ui` alias in both `components.json` files now points at `@devmentor/ui/components/ui`. `shadcn add button card input label textarea table` from `packages/app` (re)created all six there. All their imports were already installed, and `globals.css` is unchanged. Only `card` differs from before: the current registry adds `font-heading`.
+- **`ui/src/backend`:**
+  - Each category has an `index.ts`, exported as `@devmentor/ui/backend/{api,feedback,forms,tables}`.
+  - `apiCall` refuses non-`/api/` paths, returns `network_error`, `invalid_response` or the server's error body instead of throwing, and rethrows aborts.
+  - `CrudForm` treats empty inputs as "not provided" and coerces `number` fields.
+- **Lint:** `no-restricted-globals`/`no-restricted-properties` ban `fetch`, `window.fetch` and `globalThis.fetch` in app and ui. The single exception is in `apiCall.ts`, with a reasoned disable comment.
+- **`/admin`:** the page is now a static shell with a colocated client `SystemStatusCard` (used by exactly one page). It loads `/api/health` through `apiCall` and treats a `service_unavailable` code as "Unavailable", not as a loading failure.
+- **Hooks lint:** fixed a React hooks finding (synchronous `setState` in an effect) by only resetting state from the Retry handler.
+- **Test typing:** jest-dom matcher types come from including `test/setup-dom.ts` in the ui tsconfig.
 
 ## Out of scope
 

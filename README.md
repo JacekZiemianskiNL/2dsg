@@ -82,10 +82,10 @@ packages/app route/page ── withScope() ──► scoped: EntityManager (orm.
 
 | Area | Route group | Styling |
 | --- | --- | --- |
-| Frontend (public pages) | `packages/app/src/app/(frontend)/` | Tailwind CSS utilities |
+| Frontend (public pages) | `packages/app/src/app/(marketing)/`, later `(auth)/`, `(student)/` and `(mentor)/` | Tailwind CSS utilities |
 | Backend (admin pages, `/admin`) | `packages/app/src/app/(backend)/admin/` | shadcn/ui components from `@devmentor/ui` |
 
-- shadcn/ui components (style `base-nova`, built on Base UI) live in `packages/ui/src/components`. Add more by running `npx shadcn@latest add <component>` from `packages/app`.
+- shadcn/ui primitives (style `base-nova`, built on Base UI) live in `packages/ui/src/components/ui/`. Add more by running `npx shadcn@latest add <component>` from `packages/app`.
 - Both areas share one Tailwind CSS 4 stylesheet, `@devmentor/ui/globals.css`, which holds the theme tokens and the `@source` entries for `packages/ui` and `packages/app`.
 
 ## Getting started

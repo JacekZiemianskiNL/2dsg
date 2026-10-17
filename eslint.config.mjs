@@ -34,6 +34,18 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    // apiCall (packages/ui/src/backend/api/apiCall.ts) is the only sanctioned fetch() call site.
+    files: ["packages/{app,ui}/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-globals": ["error", { name: "fetch", message: "Use apiCall/apiCallOrThrow from @devmentor/ui/backend/api." }],
+      "no-restricted-properties": [
+        "error",
+        { object: "window", property: "fetch", message: "Use apiCall/apiCallOrThrow from @devmentor/ui/backend/api." },
+        { object: "globalThis", property: "fetch", message: "Use apiCall/apiCallOrThrow from @devmentor/ui/backend/api." },
+      ],
+    },
+  },
+  {
     files: ["packages/app/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": restrict(
