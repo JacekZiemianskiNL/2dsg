@@ -1,0 +1,11 @@
+{
+  "$comment": "Advisories accepted by `npm run audit`. Every entry needs a reason and a review date; expired or no-longer-reported entries fail the audit.",
+  "advisories": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "reason": "No patched braces release exists (latest 3.0.3 is affected). Reached only via fast-glob/micromatch in awilix, eslint-config-next and shadcn; exploitable only with attacker-controlled glob patterns, and the app passes no user input to globs (no Awilix loadModules).",
+      "reviewBy": "2027-01-17"
+    }
+  ]
+}

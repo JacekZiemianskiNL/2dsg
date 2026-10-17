@@ -138,7 +138,7 @@ Done when:
 | Phase | Status | Notes |
 | --- | --- | --- |
 | 1 | Done 2026-10-17 | lint, typecheck and build pass. 11 throwaway boundary/code-quality violations all fail lint, and allowed imports pass. Dev: `/`, `/admin` (Operational), `/api/health` 200. Database down: `/admin` "Unavailable", `/api/health` 503, failure logged as pino JSON. The migration CLI still works. |
-| 2 | Not started | |
+| 2 | Done 2026-10-17 | Vitest 5 projects for core, db (node) and ui (jsdom); 13 env tests pass. `npm run audit` passes only through the allowlist, and exits 1 when the entry is removed, expired or stale. `npm run validate` exits 0. |
 | 3 | Not started | |
 | 4 | Not started | |
 | 5 | Not started | |
@@ -148,6 +148,20 @@ Done when:
 - **No silent fallback:** `MikroORM.init` doesn't connect (it only discovers metadata), so a database outage surfaces in `HealthService.isDatabaseAvailable()`, which logs it with pino and returns false. A container build failure means misconfiguration, such as an invalid env. It propagates as a 500 and isn't swallowed.
 - **db is self-contained:** db owns its env schema (`loadDatabaseEnv`), so the MikroORM CLI config needs no workspace import. `core`'s `loadConfig()` composes it with `LOG_LEVEL`.
 - **Removed:** `registerCore`, `registerDb`, `RegisterFn` and `packages/app/src/server/`. Registration is explicit in `core/src/container/container.ts`.
+
+### Phase 2 notes
+
+- **Vitest layout:**
+  - Root `vitest.config.ts` with inline projects; tests are colocated as `src/**/*.test.{ts,tsx}`.
+  - `server-only` is aliased to `test/stubs/server-only.ts`.
+  - ui uses jsdom, with `@testing-library/jest-dom` matchers and cleanup in `test/setup-dom.ts`.
+- **Root config:**
+  - The root `package.json` is now `"type": "module"`. Vite 8 warned that the ESM `vitest.config.ts` was otherwise loaded as CommonJS.
+  - A root `tsconfig.json` (with `checkJs`) typechecks `vitest.config.ts`, `test/` and `scripts/`, and the root `typecheck` script runs it before the workspaces.
+- **Audit gate:**
+  - `scripts/audit.mjs` parses `npm audit --json` and fails on high or critical advisories that aren't in `audit-allowlist.json`.
+  - It also fails on entries past their `reviewBy` date and on entries npm no longer reports.
+  - The only entry is GHSA-vfj7-8cjw-p6xm, to be reviewed by 2027-01-17.
 
 ## Out of scope
 
