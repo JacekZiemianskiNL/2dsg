@@ -1,6 +1,6 @@
-import pino, { type Logger } from "pino";
+import pino, { type DestinationStream, type Logger } from "pino";
 
-import type { LogLevel } from "./config/env";
+import { loadLogLevel, type LogLevel } from "./config/env";
 
 export type { Logger };
 
@@ -12,7 +12,29 @@ export const REDACT_PATHS = [
   'req.headers["authorization"]',
   'req.headers["cookie"]',
 ];
+const CENSOR = "[REDACTED]";
 
-export function createLogger(level: LogLevel): Logger {
-  return pino({ level, redact: { paths: REDACT_PATHS, censor: "[REDACTED]" } });
+export function createLogger(level: LogLevel, destination?: DestinationStream): Logger {
+  return pino({ level, redact: { paths: REDACT_PATHS, censor: CENSOR } }, destination);
+}
+
+const globalForLogger = globalThis as typeof globalThis & { __devmentorLogger?: Logger };
+
+/**
+ * The process-wide logger, also registered in the container as `logger`.
+ * Available even when the rest of the configuration is invalid, so configuration errors can be logged.
+ */
+export function getLogger(): Logger {
+  if (globalForLogger.__devmentorLogger) return globalForLogger.__devmentorLogger;
+  let level: LogLevel = "info";
+  let levelError: unknown;
+  try {
+    level = loadLogLevel();
+  } catch (error) {
+    levelError = error;
+  }
+  const logger = createLogger(level);
+  if (levelError) logger.warn({ err: levelError }, "Invalid LOG_LEVEL; using info");
+  globalForLogger.__devmentorLogger = logger;
+  return logger;
 }

@@ -4,7 +4,7 @@ import { asClass, asFunction, asValue, createContainer, InjectionMode, type Awil
 import { getOrm } from "@devmentor/db";
 
 import { loadConfig } from "../config/env";
-import { createLogger } from "../logger";
+import { getLogger } from "../logger";
 import { HealthService } from "../services/health/health.service";
 import type { Cradle } from "./cradle";
 
@@ -16,7 +16,7 @@ async function buildContainer(): Promise<AwilixContainer<Cradle>> {
 
   container.register({
     config: asValue(config),
-    logger: asValue(createLogger(config.logLevel)),
+    logger: asValue(getLogger()),
     orm: asValue(orm),
     em: asFunction(({ orm }: Cradle) => orm.em.fork()).scoped(),
     healthService: asClass(HealthService).scoped(),
@@ -24,17 +24,18 @@ async function buildContainer(): Promise<AwilixContainer<Cradle>> {
   return container;
 }
 
-// Cached on globalThis so dev HMR doesn't rebuild it; a failed build is retried on the next call.
-const globalForContainer = globalThis as typeof globalThis & {
-  __devmentorContainer?: Promise<AwilixContainer<Cradle>>;
-};
+// Cached per module instance, deliberately not on globalThis: Next.js bundles route handlers and pages
+// separately and HMR re-evaluates modules, so a global container would hand out services (and error
+// classes) from another module graph or stale code. The expensive part, the ORM's connection pool, is
+// shared process-wide by getOrm(). A failed build is retried on the next call.
+let containerPromise: Promise<AwilixContainer<Cradle>> | undefined;
 
 export function getContainer(): Promise<AwilixContainer<Cradle>> {
-  globalForContainer.__devmentorContainer ??= buildContainer().catch((error: unknown) => {
-    globalForContainer.__devmentorContainer = undefined;
+  containerPromise ??= buildContainer().catch((error: unknown) => {
+    containerPromise = undefined;
     throw error;
   });
-  return globalForContainer.__devmentorContainer;
+  return containerPromise;
 }
 
 /** Runs `fn` with a fresh request scope (own EntityManager, scoped services) and disposes it afterwards. */

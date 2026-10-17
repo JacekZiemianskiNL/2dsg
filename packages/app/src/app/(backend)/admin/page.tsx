@@ -10,11 +10,17 @@ import {
   CardTitle,
 } from "@devmentor/ui/components/card";
 
-import { withScope } from "@devmentor/core";
+import { ServiceUnavailableError, withScope } from "@devmentor/core";
 
 export default async function AdminPage() {
   await connection();
-  const dbHealthy = await withScope(({ healthService }) => healthService.isDatabaseAvailable());
+  const dbHealthy = await withScope(({ healthService }) => healthService.check()).then(
+    () => true,
+    (error: unknown) => {
+      if (error instanceof ServiceUnavailableError) return false;
+      throw error;
+    },
+  );
 
   return (
     <div className="grid gap-6">

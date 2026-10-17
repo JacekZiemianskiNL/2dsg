@@ -1,10 +1,16 @@
 import { pingDatabase, type EntityManager } from "@devmentor/db";
 
+import { ServiceUnavailableError } from "../../http/errors";
 import type { Logger } from "../../logger";
 
 interface HealthServiceDeps {
   em: EntityManager;
   logger: Logger;
+}
+
+export interface HealthStatus {
+  status: "ok";
+  db: "ok";
 }
 
 export class HealthService {
@@ -16,14 +22,14 @@ export class HealthService {
     this.#logger = logger;
   }
 
-  /** True when a trivial query succeeds; the cause of a failure is logged, never returned. */
-  async isDatabaseAvailable(): Promise<boolean> {
+  /** Throws `ServiceUnavailableError` when the database can't be reached; the cause is logged, never returned. */
+  async check(): Promise<HealthStatus> {
     try {
       await pingDatabase(this.#em);
-      return true;
     } catch (error) {
       this.#logger.error({ err: error }, "Database health check failed");
-      return false;
+      throw new ServiceUnavailableError("Database unavailable");
     }
+    return { status: "ok", db: "ok" };
   }
 }

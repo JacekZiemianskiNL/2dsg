@@ -66,7 +66,7 @@ packages/
 
 - MikroORM code is server-only. `@devmentor/db` and `@devmentor/core` entry points start with `import "server-only"`, so never import them from Client Components (`"use client"`).
 - Define entities with `defineEntity` rather than decorators, so no `reflect-metadata` or decorator metadata is needed under SWC/Turbopack.
-- One `MikroORM` instance per process, created lazily and cached on `globalThis` so dev HMR doesn't open new pools.
+- One `MikroORM` instance per process, created lazily and cached on `globalThis` so dev HMR doesn't open new pools. Only such external resources go on `globalThis`; the DI container is cached per module (see `.ai/lessons/2026-10-17-no-globalthis-container.md`).
   - Database settings come from env vars validated with Zod in `packages/db/src/env.ts`: `DATABASE_URL`, `DATABASE_POOL_MIN`/`MAX`, `DATABASE_CONNECT_TIMEOUT_MS`.
   - The MikroORM CLI config reads them directly, and `core`'s `loadConfig()` composes them.
 - Every request or job uses its own forked `EntityManager` (`orm.em.fork()`), provided through the request's DI scope. Never use the global `em` directly.

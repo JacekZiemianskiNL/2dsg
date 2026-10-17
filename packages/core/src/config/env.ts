@@ -13,6 +13,15 @@ export interface AppConfig {
   database: DatabaseConfig;
 }
 
+/** Reads and validates LOG_LEVEL alone, so the logger works even when the rest of the config is invalid. */
+export function loadLogLevel(env: NodeJS.ProcessEnv = process.env): LogLevel {
+  const result = appEnvSchema.shape.LOG_LEVEL.safeParse(env.LOG_LEVEL);
+  if (!result.success) {
+    throw new Error(`Invalid environment:\n${z.prettifyError(result.error)}`);
+  }
+  return result.data;
+}
+
 /** Reads and validates all configuration from environment variables. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = appEnvSchema.safeParse(env);

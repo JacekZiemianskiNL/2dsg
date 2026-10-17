@@ -1,13 +1,8 @@
 import { connection } from "next/server";
-import { withScope } from "@devmentor/core";
+import { apiHandler, publicRoute, withScope } from "@devmentor/core";
 
-// Public endpoint: report only ok/error, never error details, versions or hostnames.
-export async function GET(): Promise<Response> {
+// Public: 200 { ok: true, data: { status, db } }, or 503 service_unavailable with no internal details.
+export const GET = apiHandler({ authorize: publicRoute }, async () => {
   await connection();
-  const headers = { "Cache-Control": "no-store" };
-  const isAvailable = await withScope(({ healthService }) => healthService.isDatabaseAvailable());
-  if (isAvailable) {
-    return Response.json({ status: "ok", db: "ok" }, { headers });
-  }
-  return Response.json({ status: "error", db: "error" }, { status: 503, headers });
-}
+  return withScope(({ healthService }) => healthService.check());
+});

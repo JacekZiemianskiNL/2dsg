@@ -139,7 +139,7 @@ Done when:
 | --- | --- | --- |
 | 1 | Done 2026-10-17 | lint, typecheck and build pass. 11 throwaway boundary/code-quality violations all fail lint, and allowed imports pass. Dev: `/`, `/admin` (Operational), `/api/health` 200. Database down: `/admin` "Unavailable", `/api/health` 503, failure logged as pino JSON. The migration CLI still works. |
 | 2 | Done 2026-10-17 | Vitest 5 projects for core, db (node) and ui (jsdom); 13 env tests pass. `npm run audit` passes only through the allowlist, and exits 1 when the entry is removed, expired or stale. `npm run validate` exits 0. |
-| 3 | Not started | |
+| 3 | Done 2026-10-17 | 52 tests pass. `/api/health` returns the envelope (200 / 503); a bad `DATABASE_URL` gives a generic logged 500; POST gives 405. `/admin`: Operational / Unavailable. Connections stay at 1 across HMR. `npm run validate` exits 0. |
 | 4 | Not started | |
 | 5 | Not started | |
 
@@ -162,6 +162,17 @@ Done when:
   - `scripts/audit.mjs` parses `npm audit --json` and fails on high or critical advisories that aren't in `audit-allowlist.json`.
   - It also fails on entries past their `reviewBy` date and on entries npm no longer reports.
   - The only entry is GHSA-vfj7-8cjw-p6xm, to be reviewed by 2027-01-17.
+
+### Phase 3 notes
+
+- **`core/src/http`:**
+  - `errors.ts`: the AppError hierarchy, with `ValidationError.fromZod` mapping issue paths to dot-separated `fieldErrors`.
+  - `envelope.ts`: `ApiEnvelope` and the CSRF header constants.
+  - `apiHandler.ts`: the CSRF check, then `authorize`, then the handler, mapping the result to the envelope. Responses send `Cache-Control: no-store`. It also exports `parseJsonBody`, the only way a route reads a JSON body.
+  - `makeCrudRoute.ts`: separate `access.read` and `access.write` authorizers, plus pagination (`page`, and `pageSize` up to 100).
+- **Logger:** `getLogger()` is process-wide and also registered in the container. It only needs `LOG_LEVEL`, so configuration errors can still be logged.
+- **Bug found and fixed:** the container was cached on `globalThis`, which served stale classes after HMR (dev 500) and mixed class identities across Next's route and page bundles (`/admin` 500 when the database was down). It's now cached per module. See `.ai/lessons/2026-10-17-no-globalthis-container.md`.
+- **Test helper:** `captureLogs` lives in `packages/core/src/testing/`. A shared root `test/` helper would break `import/no-relative-packages`, which is correct.
 
 ## Out of scope
 
