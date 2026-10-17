@@ -56,6 +56,12 @@ PR: #7
   - The `devmentor` role and database were dropped afterwards.
 - Failure paths tried by hand: a password mismatch after deleting `.env`, and an unreachable port. Both exit 1 with actionable messages and no password in the output.
 
+## Review
+
+- An independent review (om-auto-review-pr, --autofix) requested changes: 1 major (Windows `npm` spawn in the wrapped scripts) and 5 minor findings plus nits. All were fixed in 63df28c, except three nits declined with reasons in the PR.
+- The real `npm run setup` against the sandbox's `open-mercato` database exposed a defect: names were validated even when nothing needed creating. Now names are validated only before provisioning (63df28c).
+- Re-review: approved. `npm run validate` is green again at 100% coverage. The setup and health integration tests pass, and the real double runs in both modes are idempotent.
+
 ## Outcome
 
 Done. Follow-up: after spec PR #6 merges, move the spec to `.ai/specs/implemented/`.
