@@ -1,0 +1,283 @@
+# Monorepo migration and package scaffolding
+
+- **Date:** 2026-10-17
+- **Status:** Implemented 2026-10-17 (see Plan and progress)
+- **Related:** `AGENTS.md` (DevMentor architecture rules), `README.md` (Architecture)
+
+## Context
+
+The repository is the default single Next.js 16.3.4 app in `src/app/`: a starter page, `backdrop.tsx`, `globals.css` and `page.module.css`. `AGENTS.md` and `README.md` describe the target: an npm-workspaces monorepo with `app`, `core`, `db` and `ui` packages on PostgreSQL + MikroORM 7, Awilix, Tailwind CSS 4 and shadcn/ui. This spec covers getting from one to the other with working, verified wiring and no domain features.
+
+## Goals
+
+1. Convert the root into an npm-workspaces root and move the Next.js app into `packages/app` (`@devmentor/app`).
+2. Scaffold `@devmentor/core`, `@devmentor/db` and `@devmentor/ui` following the rules in `AGENTS.md`.
+3. Wire MikroORM (PostgreSQL, pooling, migrations, CLI) in `db` and the Awilix container in `app`, and prove both end to end with a health check.
+4. Set up Tailwind CSS 4 and shadcn/ui, with the `(frontend)` and `(backend)` route groups each rendering one page. The backend area is served under `/admin`.
+5. Keep `npm run dev`, `npm run lint` and `npm run build` working from the repo root. `openmercato.toml` runs `npm run dev -- --hostname 0.0.0.0 --port 3000`.
+6. Upgrade Next.js to the latest 16.x, `eslint-config-next` to match, and React to the latest 19.x.
+
+## Non-goals
+
+- Domain entities, business features, authentication and authorization.
+- A test framework (to be decided in a separate spec).
+- CI/CD, deployment, Docker images for the app, and a Dockerized database (development uses the local PostgreSQL).
+- Turborepo or other build orchestration (npm workspaces only).
+
+## Design
+
+### Root
+
+```
+.
+├── package.json          private, "workspaces": ["packages/*"], engines.node ">=22.17"
+├── package-lock.json     single lockfile
+├── tsconfig.base.json    shared strict compiler options
+├── eslint.config.mjs     flat config shared by all packages
+├── .env.example          DATABASE_URL=postgresql://devmentor:devmentor@localhost:5432/devmentor
+└── packages/{app,core,db,ui}
+```
+
+- The root `package.json` holds only shared tooling (`typescript`, `eslint`, `eslint-config-next`, `@types/node`). Its scripts forward to workspaces:
+  - `dev`, `build`, `start` → `npm run <script> -w @devmentor/app`
+  - `lint` → `eslint .`
+  - `typecheck` → `tsc --noEmit` in every workspace (`npm run typecheck --workspaces --if-present`)
+  - `db:migrate`, `db:migration:create` → forward to `@devmentor/db`
+- `next` and `react` must hoist to the root `node_modules`, so the `node_modules/next/dist/docs/` path in `AGENTS.md` keeps working. Verify after `npm install`.
+- `.gitignore`: the current patterns are root-anchored (`/node_modules`, `/.next/`). Change them to match in every package (`node_modules/`, `.next/`, `*.tsbuildinfo`, `next-env.d.ts`), and keep `.env*` ignored with `!.env.example`.
+- Every internal package is `"private": true` and `"type": "module"`. Its `exports` point at TypeScript source (`"./src/index.ts"`) or source subpaths, with no build step.
+
+### `packages/app` (`@devmentor/app`)
+
+```
+packages/app/
+├── package.json        deps: next, react, react-dom, awilix, @devmentor/{core,db,ui}
+├── next.config.ts
+├── postcss.config.mjs  @tailwindcss/postcss
+├── tsconfig.json       extends ../../tsconfig.base.json; paths "@/*" → "./src/*"
+├── public/             moved from root
+└── src/
+    ├── app/
+    │   ├── layout.tsx          root layout (html/body, globals.css)
+    │   ├── globals.css         @import "tailwindcss"; shadcn theme; @source for packages/ui
+    │   ├── (frontend)/page.tsx  "/", Tailwind-only page
+    │   ├── (backend)/admin/layout.tsx
+    │   ├── (backend)/admin/page.tsx  "/admin", built with @devmentor/ui components
+    │   └── api/health/route.ts  GET → { status: "ok", db: "ok" }, running `select 1` through a scoped EntityManager
+    └── server/
+        ├── container.ts   composition root: createContainer(), registerCore(), registerDb()
+        └── scope.ts       helper: create a request scope, run a callback with it, dispose it
+```
+
+- Move the existing `src/app` files with `git mv`, then replace the create-next-app starter with a minimal DevMentor placeholder page: delete `backdrop.tsx`, `page.module.css` and the starter CSS, and set metadata to DevMentor.
+- The container is created lazily and cached on `globalThis` to survive HMR. `container.ts` and `scope.ts` start with `import 'server-only'`.
+- `next.config.ts`: add `serverExternalPackages` only if the build fails to bundle a MikroORM package (`@mikro-orm/core` is externalized by default).
+
+### `packages/core` (`@devmentor/core`)
+
+```
+packages/core/src/
+├── index.ts
+├── di/types.ts      Cradle base type and a RegisterFn = (container: AwilixContainer) => void
+├── config/env.ts    typed, validated access to environment variables (throws on missing DATABASE_URL)
+└── register.ts      registerCore(container): config (SINGLETON)
+```
+
+- `core` has no dependency on next, react or @mikro-orm/*. `awilix` is allowed for container types only.
+
+### `packages/db` (`@devmentor/db`)
+
+```
+packages/db/
+├── package.json  deps: @mikro-orm/core, @mikro-orm/postgresql, @mikro-orm/migrations, awilix, server-only, @devmentor/core
+│                 devDeps: @mikro-orm/cli, tsx
+│                 "mikro-orm": { "configPaths": ["./src/mikro-orm.config.ts"] }
+│                 scripts: migration:create, migration:up, migration:down, migration:list
+└── src/
+    ├── index.ts           server-only public API
+    ├── mikro-orm.config.ts defineConfig from @mikro-orm/postgresql: clientUrl from DATABASE_URL,
+    │                        pool { min, max } from env (defaults 2 / 10), entities list,
+    │                        migrations { path: "src/migrations", transactional: true },
+    │                        extensions: [Migrator], discovery.warnWhenNoEntities: false
+    ├── orm.ts             getOrm(): lazy MikroORM.init, cached on globalThis; closeOrm()
+    ├── entities/index.ts  empty entity list (entities use defineEntity)
+    ├── migrations/        committed migrations
+    └── register.ts        registerDb(container): orm (SINGLETON, disposer closes the pool),
+                           em (SCOPED, orm.em.fork())
+```
+
+- The MikroORM CLI (`npx mikro-orm`) loads the TypeScript config through `tsx`.
+- `db` exposes no global `em`. Consumers get `em` from the DI scope.
+
+### `packages/ui` (`@devmentor/ui`)
+
+```
+packages/ui/
+├── package.json     exports: "./globals.css", "./components/*", "./lib/*", "./hooks/*"
+├── components.json  shadcn config for the ui package (Tailwind v4: empty tailwind.config)
+└── src/
+    ├── components/        shadcn components (initially: button, card)
+    ├── lib/utils.ts       cn() (re-exported from shadcn's `cn` package)
+    └── styles/globals.css shared stylesheet: Tailwind, shadcn theme tokens, @source for ui and app
+```
+
+- Initialize shadcn in monorepo mode: one `components.json` in `packages/app` and one in `packages/ui`, with matching `style`, `iconLibrary` and `baseColor`, and aliases resolving to `@devmentor/ui/...`. Run `shadcn add` from `packages/app` so base components land in `packages/ui`.
+
+### Local database
+
+Development uses a locally installed PostgreSQL server; this environment runs PostgreSQL 17 on `localhost:5432` with `DATABASE_URL` already set. There is no `compose.yaml`. `.env.example` documents the `DATABASE_URL` format, and the README's Getting started section explains how to create a role and database on a fresh machine (`createuser` / `createdb`).
+
+## Plan and progress
+
+Each phase ends with `npm run lint`, `npm run typecheck` and `npm run build` passing from the root. Record progress here as phases complete.
+
+### Phase 1: Workspace and package split (behavior-preserving)
+
+- Make the root an npm workspace:
+  - `package.json` with forwarding scripts, a single lockfile and `tsconfig.base.json`.
+  - A shared ESLint config.
+  - Update `.gitignore` and add `.env.example`.
+- Move the app into `packages/app` without changing behavior: the starter page at `/` renders exactly as before.
+- Scaffold `core`, `db` and `ui`, each with `package.json`, `exports`, `tsconfig.json`, `typecheck` and its first public API:
+  - **core:** typed env config, DI types and `registerCore`.
+  - **db:** MikroORM config, `getOrm`/`closeOrm`, `registerDb` and the migration CLI scripts.
+  - **ui:** `cn()`.
+- Wire the dependency graph (`app` → `core`/`db`/`ui`, `db` → `core`) and the composition root in `packages/app/src/server/`.
+- Upgrade next to 16.4.2 and react/react-dom to 19.3.1.
+
+Done when:
+- `npm install` produces a single lockfile, and `next` is hoisted to the root.
+- lint, typecheck and build pass.
+- The preview command serves `/` unchanged.
+- No cross-package relative imports, and `core` doesn't import next, react or MikroORM.
+
+### Phase 2: Runtime wiring (database + DI)
+
+- `/api/health` resolves a request scope and runs `select 1`.
+- Run the migration CLI against the local PostgreSQL, keeping the initial migrations folder.
+- Check that HMR doesn't grow the connection pool.
+
+Done when:
+- `/api/health` returns 200 with the database available and 503 without it.
+- `db:migration:create` and `db:migrate` work.
+- The connection count is stable across reloads.
+
+### Phase 3: UI
+
+- Set up Tailwind CSS 4 and shadcn in monorepo mode, adding `button` and `card` to `packages/ui`.
+- Replace the starter with a DevMentor placeholder in `(frontend)/`.
+- Add the `(backend)/admin` page.
+
+Done when:
+- `/` renders a Tailwind-styled placeholder.
+- `/admin` renders the shadcn `Button` and `Card` with correct styles.
+
+### Phase 4: Close-out
+
+- Update the README (Status, Getting started) and `AGENTS.md` for anything decided differently.
+- Move this spec to `.ai/specs/implemented/`.
+
+Done when every acceptance criterion below is checked.
+
+### Progress
+
+| Phase | Status | Notes |
+| --- | --- | --- |
+| 1 | Done 2026-10-17 | lint, typecheck, build pass; `/` serves the unchanged starter page through the root `npm run dev`; `mikro-orm debug` loads the TS config and connects. See the phase 1 notes below. |
+| 2 | Done 2026-10-17 | `/api/health` 200 with the database up and 503 with it down (refused: immediate; unreachable host: about 2s via the connect timeout); migration create/up/list/down work; connections stable at 1 across 5 HMR reloads. See the phase 2 notes below. |
+| 3 | Done 2026-10-17 | Tailwind 4 + shadcn (base-nova) in `packages/ui`; `/` shows the Tailwind placeholder; `/admin` shows a shadcn Card and Button with a live database status. Verified with headless Chromium screenshots. See the phase 3 notes below. |
+| 4 | Done 2026-10-17 | Docs closed out. Full verification on a clean `npm ci`: lint, typecheck and build pass; production and dev startup work; database-down behavior and migrations checked. See the phase 4 notes below. |
+
+### Phase 1 notes
+
+- **Moving directories:** the workspace runs on overlayfs, so `git mv` of directories fails with `EXDEV`. `src/` and `public/` were copied and the originals deleted; git still records the moves as renames.
+- **Starter page:** kept as-is at `packages/app/src/app/page.tsx`, with `backdrop.tsx` and `page.module.css`. Moving it to `(frontend)/` and replacing it is phase 3.
+- **NODE_ENV:** the sandbox exports `NODE_ENV=development`, which makes `next build` fail while prerendering `/_global-error` (`Cannot read properties of null (reading 'useContext')`). The original single-app repo fails the same way. Fix: the app's `build` and `start` scripts set `NODE_ENV=production`. This is POSIX-shell syntax; revisit if Windows support is needed.
+- **Tooling versions:** TypeScript stays on 5.x and ESLint on 9.x, as in the original template. The latest majors are TypeScript 7 (the native compiler) and ESLint 10, but upgrading them is outside this spec.
+- **`noUncheckedIndexedAccess`:** not enabled. The original config didn't have it, and the starter `backdrop.tsx` fails it.
+- **Import rules in `eslint.config.mjs`:**
+  - `import/no-relative-packages`: no relative imports across packages.
+  - `no-restricted-imports`: `core` imports nothing from next, react, @mikro-orm or other `@devmentor/*` packages; `db` and `ui` don't import `@devmentor/app`.
+  - Verified with throwaway files that violated each rule.
+- **Composition root:** `packages/app/src/server/container.ts` and `scope.ts` exist and typecheck, but nothing calls them until `/api/health` (phase 2).
+- **Next.js packages:** `serverExternalPackages` wasn't needed so far, because nothing in the build imports `@devmentor/db` yet. Re-check this in phase 2.
+
+### Phase 2 notes
+
+- **Health route:** `packages/app/src/app/api/health/route.ts`.
+  - Calls `await connection()`, runs `em.execute("select 1")` inside `withScope`, and sends `Cache-Control: no-store`.
+  - Responses are only `{"status":"ok","db":"ok"}` or `{"status":"error","db":"error"}`. The cause is logged on the server, never returned.
+- **Connect timeout:** `pg` waits forever for a connection by default, which would make the health check hang instead of returning 503 when the database is down.
+  - Added `DATABASE_CONNECT_TIMEOUT_MS` (default 5000) to the core config.
+  - It reaches the `pg` Pool through MikroORM `driverOptions.connectionTimeoutMillis`.
+- **Snapshot name:** `migrations.snapshotName` is set to `.snapshot-devmentor`. By default the schema snapshot is named after the database (here `.snapshot-open-mercato.json`), which differs per machine.
+  - No snapshot or migration is committed yet. The probes were a blank migration, applied and then reverted, and with no entities there's nothing to snapshot.
+  - The `mikro_orm_migrations` tracking table now exists in the local database (empty).
+- **`serverExternalPackages`:** still not needed. `next build` bundles `@devmentor/db` and MikroORM 7, and `next start` serves `/api/health` correctly.
+- **How it was tested:**
+  - Database down: separate `next start` instances on spare ports, with `DATABASE_URL` pointing at a refused port and at a non-routable host. The shared PostgreSQL was never stopped.
+  - HMR: appended comments to `src/server/container.ts` five times while the dev server ran, and counted `pg_stat_activity` connections after each health call.
+
+### Phase 3 notes
+
+- **Stylesheet location:** follows shadcn's monorepo convention instead of the original `src/styles.css` design.
+  - The shared stylesheet is `packages/ui/src/styles/globals.css`, exported as `@devmentor/ui/globals.css` and imported once by the root layout.
+  - It imports `tailwindcss`, `tw-animate-css` and `shadcn/tailwind.css`, registers `@source` for `packages/ui/src` and `packages/app/src`, and holds the theme.
+  - `packages/app` has no CSS file of its own, just `postcss.config.mjs` with `@tailwindcss/postcss`.
+- **components.json:** in `packages/app` and `packages/ui`, style `base-nova` (Base UI), base color `neutral`, icons `lucide`. Aliases resolve to `@devmentor/ui/...`.
+  - `packages/ui/tsconfig.json` maps `@devmentor/ui/*` to `./src/*` so the CLI can resolve them.
+  - `shadcn add button card`, run from `packages/app`, wrote the components to `packages/ui/src/components/`.
+- **`cn`:** the current registry imports `cn` from shadcn's `cn` package, which replaces clsx + tailwind-merge. `@devmentor/ui/lib/utils` re-exports it, and clsx/tailwind-merge were removed.
+- **Theme and dependencies:**
+  - `shadcn add` didn't install component dependencies or write the theme in this setup.
+  - `shadcn init` in `packages/app` would have overwritten the monorepo `components.json`, so I declined it.
+  - Instead I ran `shadcn init -b base -p nova` in a scratch Next app outside the repo, and copied its theme CSS and dependency list into `packages/ui`: `@base-ui/react`, `class-variance-authority`, `cn`, `lucide-react`, `tw-animate-css`, `shadcn`.
+- **Pages and layout:**
+  - Removed the starter (`backdrop.tsx`, `page.module.css`, `globals.css`).
+  - The root layout sets DevMentor metadata (title template `%s | DevMentor`) and Geist via `next/font/google`, as shadcn's init generates. Note that `next/font/google` downloads the font at build time.
+  - `(frontend)/page.tsx` is a Tailwind-only placeholder, statically prerendered.
+  - `(backend)/admin/layout.tsx` and `page.tsx` are dynamic, built with the Card and `buttonVariants`, and the admin pages are marked noindex.
+  - `server/health.ts` (`isDatabaseHealthy`) is shared by `/api/health` and `/admin`.
+- **Dev server cache:** after the root layout and its CSS were replaced, the running dev server kept serving the old root layout (title "Next.js starter"). Restarting it with a clean `.next` fixed this.
+- **Visual check:** done with headless Chromium (Playwright) in the job's tmp folder. The missing system libraries were extracted from Debian `.deb` files with `apt-get download` and `dpkg-deb -x`, with no root needed.
+
+### Phase 4 notes
+
+Full-project verification, run 2026-10-17 from the repo root with the sandbox's `NODE_ENV=development`, after deleting all `node_modules` and `.next`:
+
+| Check | Result |
+| --- | --- |
+| `npm ci` (Node 24.21, npm 11.19) | OK in about 8s; one lockfile, no per-package `node_modules`, `node_modules/next/dist/docs/` present, working tree unchanged |
+| `npm run lint` / `npm run typecheck` / `npm run build` | PASS / PASS / PASS. Routes: `/` static; `/admin` and `/api/health` dynamic. No build warnings |
+| Tests | None. There's no test framework (out of scope, see Non-goals) and no `test` script |
+| Production startup: `npm start -- --port 3100` | `/` 200 "DevMentor"; `/admin` 200 "Admin \| DevMentor", Operational; `/api/health` 200 ok; unknown path 404 |
+| Production with the database unreachable | `/` 200; `/admin` 200 "Unavailable"; `/api/health` 503 error; the server keeps running |
+| Dev startup: the pm2 preview command, i.e. `npm run dev -- --hostname 0.0.0.0 --port 3000` | `next dev` runs in `packages/app`; `/`, `/admin` and `/api/health` all 200 |
+| `npm run db:migration:create` / `npm run db:migrate` | "No changes required" / "Successfully migrated up" |
+| Connections across HMR reloads | Stable at 1 |
+| Headless Chromium screenshots | Same as phase 3 |
+
+Known issue: `npm audit` reports 10 high-severity findings, all from one advisory, GHSA-vfj7-8cjw-p6xm.
+- The vulnerable library is `braces`, through `fast-glob`/`micromatch`, used by awilix, eslint-config-next and shadcn.
+- Every published `braces` version is affected (the latest is 3.0.3), so there's no patch. npm's suggested "fix" is downgrading awilix to 6, eslint-config-next to 14 and shadcn to 1.
+- It's only exploitable with attacker-controlled glob patterns. The app passes no user input to globs and doesn't use Awilix `loadModules`.
+- Re-check when a patched `braces` is released.
+
+## Acceptance criteria
+
+- [x] `npm install` at the root produces a single `package-lock.json`, with no lockfiles in packages.
+- [x] `npm run lint`, `npm run typecheck` and `npm run build` pass from the root.
+- [x] `npm run dev -- --hostname 0.0.0.0 --port 3000` (the `openmercato.toml` preview command) serves the app.
+- [x] `/` renders a Tailwind-styled page, and `/admin` renders shadcn `Button` and `Card` from `@devmentor/ui` with correct styles.
+- [x] With PostgreSQL running, `GET /api/health` returns `200 {"status":"ok","db":"ok"}`. With the database stopped, it returns `503` without crashing the server.
+- [x] `npm run db:migration:create` and `npm run db:migrate` run against the local database.
+- [x] Repeated HMR reloads in dev don't grow the number of PostgreSQL connections (check `pg_stat_activity`).
+- [x] The import rules hold: `core` imports none of next, react or @mikro-orm/*; no package imports from `app`; no relative imports cross package boundaries.
+- [x] `node_modules/next/dist/docs/` exists at the repo root.
+
+## Decisions
+
+1. **Local PostgreSQL:** use the locally installed server, not Docker (decided 2026-10-17).
+2. **Starter page:** replace it with a minimal DevMentor placeholder (decided 2026-10-17).
+3. **Backend route prefix:** `/admin`. The route group stays `(backend)` (decided 2026-10-17).
+4. **Health route:** keep `/api/health` permanently. It returns only `{"status":"ok","db":"ok"}` (200) or `{"status":"error","db":"error"}` (503), with no error details, versions or hostnames (decided 2026-10-17).
