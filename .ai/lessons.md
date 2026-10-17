@@ -14,6 +14,8 @@ Long-term memory for LLM agents working in this repository. Read this file **bef
 Format: `- [YYYY-MM-DD] [Title](lessons/YYYY-MM-DD-slug.md) — one-line takeaway`
 
 <!-- Add new entries below this line, newest first -->
+- [2026-10-17] [NODE_ENV=development breaks `next build`](lessons/2026-10-17-node-env-breaks-next-build.md): the sandbox sets NODE_ENV=development; app build/start scripts force production
+- [2026-10-17] [`git mv` of directories fails with EXDEV on overlayfs](lessons/2026-10-17-overlayfs-git-mv-exdev.md): copy and delete instead; git still sees renames
 
 ## Lesson file template
 

@@ -1,7 +1,7 @@
 # Monorepo migration and package scaffolding
 
 - **Date:** 2026-10-17
-- **Status:** Draft. Questions 1–3 are resolved; question 4 (health route) is still open
+- **Status:** Approved 2026-10-17, implementation in progress (see Plan and progress)
 - **Related:** `AGENTS.md` (DevMentor architecture rules), `README.md` (Architecture)
 
 ## Context
@@ -89,7 +89,7 @@ packages/core/src/
 
 ```
 packages/db/
-├── package.json  deps: @mikro-orm/core, @mikro-orm/postgresql, @mikro-orm/migrations, @devmentor/core
+├── package.json  deps: @mikro-orm/core, @mikro-orm/postgresql, @mikro-orm/migrations, awilix, server-only, @devmentor/core
 │                 devDeps: @mikro-orm/cli, tsx
 │                 "mikro-orm": { "configPaths": ["./src/mikro-orm.config.ts"] }
 │                 scripts: migration:create, migration:up, migration:down, migration:list
@@ -127,16 +127,80 @@ packages/ui/
 
 Development uses a locally installed PostgreSQL server; this environment runs PostgreSQL 17 on `localhost:5432` with `DATABASE_URL` already set. There is no `compose.yaml`. `.env.example` documents the `DATABASE_URL` format, and the README's Getting started section explains how to create a role and database on a fresh machine (`createuser` / `createdb`).
 
-## Implementation steps
+## Plan and progress
 
-1. Update `.gitignore`. Create the root workspace `package.json`, `tsconfig.base.json` and shared ESLint config.
-2. `git mv` `src/`, `public/`, `next.config.ts`, `next-env.d.ts` (or regenerate it) and `tsconfig.json` into `packages/app`, then adjust the configs.
-3. Scaffold `core`, `db` and `ui` with their `package.json`, `tsconfig.json` and source files.
-4. `npm install`, upgrading next, react and react-dom to the latest stable versions. Confirm that `next` hoists to the root `node_modules`.
-5. Set up Tailwind 4 and shadcn, and add `button` and `card`.
-6. Wire the Awilix container and the health route.
-7. Add `.env.example`. Run the checks below against the local PostgreSQL server.
-8. Update `README.md` (Status, Getting started) and `AGENTS.md` if anything was decided differently. Move this spec to `.ai/specs/implemented/`.
+Each phase ends with `npm run lint`, `npm run typecheck` and `npm run build` passing from the root. Record progress here as phases complete.
+
+### Phase 1: Workspace and package split (behavior-preserving)
+
+- Make the root an npm workspace:
+  - `package.json` with forwarding scripts, a single lockfile and `tsconfig.base.json`.
+  - A shared ESLint config.
+  - Update `.gitignore` and add `.env.example`.
+- Move the app into `packages/app` without changing behavior: the starter page at `/` renders exactly as before.
+- Scaffold `core`, `db` and `ui`, each with `package.json`, `exports`, `tsconfig.json`, `typecheck` and its first public API:
+  - **core:** typed env config, DI types and `registerCore`.
+  - **db:** MikroORM config, `getOrm`/`closeOrm`, `registerDb` and the migration CLI scripts.
+  - **ui:** `cn()`.
+- Wire the dependency graph (`app` → `core`/`db`/`ui`, `db` → `core`) and the composition root in `packages/app/src/server/`.
+- Upgrade next to 16.4.2 and react/react-dom to 19.3.1.
+
+Done when:
+- `npm install` produces a single lockfile, and `next` is hoisted to the root.
+- lint, typecheck and build pass.
+- The preview command serves `/` unchanged.
+- No cross-package relative imports, and `core` doesn't import next, react or MikroORM.
+
+### Phase 2: Runtime wiring (database + DI)
+
+- `/api/health` resolves a request scope and runs `select 1`.
+- Run the migration CLI against the local PostgreSQL, keeping the initial migrations folder.
+- Check that HMR doesn't grow the connection pool.
+
+Done when:
+- `/api/health` returns 200 with the database available and 503 without it.
+- `db:migration:create` and `db:migrate` work.
+- The connection count is stable across reloads.
+
+### Phase 3: UI
+
+- Set up Tailwind CSS 4 and shadcn in monorepo mode, adding `button` and `card` to `packages/ui`.
+- Replace the starter with a DevMentor placeholder in `(frontend)/`.
+- Add the `(backend)/admin` page.
+
+Done when:
+- `/` renders a Tailwind-styled placeholder.
+- `/admin` renders the shadcn `Button` and `Card` with correct styles.
+
+### Phase 4: Close-out
+
+- Update the README (Status, Getting started) and `AGENTS.md` for anything decided differently.
+- Move this spec to `.ai/specs/implemented/`.
+
+Done when every acceptance criterion below is checked.
+
+### Progress
+
+| Phase | Status | Notes |
+| --- | --- | --- |
+| 1 | Done 2026-10-17 | lint, typecheck, build pass; `/` serves the unchanged starter page through the root `npm run dev`; `mikro-orm debug` loads the TS config and connects. See the phase 1 notes below. |
+| 2 | Not started | |
+| 3 | Not started | |
+| 4 | Not started | |
+
+### Phase 1 notes
+
+- **Moving directories:** the workspace runs on overlayfs, so `git mv` of directories fails with `EXDEV`. `src/` and `public/` were copied and the originals deleted; git still records the moves as renames.
+- **Starter page:** kept as-is at `packages/app/src/app/page.tsx`, with `backdrop.tsx` and `page.module.css`. Moving it to `(frontend)/` and replacing it is phase 3.
+- **NODE_ENV:** the sandbox exports `NODE_ENV=development`, which makes `next build` fail while prerendering `/_global-error` (`Cannot read properties of null (reading 'useContext')`). The original single-app repo fails the same way. Fix: the app's `build` and `start` scripts set `NODE_ENV=production`. This is POSIX-shell syntax; revisit if Windows support is needed.
+- **Tooling versions:** TypeScript stays on 5.x and ESLint on 9.x, as in the original template. The latest majors are TypeScript 7 (the native compiler) and ESLint 10, but upgrading them is outside this spec.
+- **`noUncheckedIndexedAccess`:** not enabled. The original config didn't have it, and the starter `backdrop.tsx` fails it.
+- **Import rules in `eslint.config.mjs`:**
+  - `import/no-relative-packages`: no relative imports across packages.
+  - `no-restricted-imports`: `core` imports nothing from next, react, @mikro-orm or other `@devmentor/*` packages; `db` and `ui` don't import `@devmentor/app`.
+  - Verified with throwaway files that violated each rule.
+- **Composition root:** `packages/app/src/server/container.ts` and `scope.ts` exist and typecheck, but nothing calls them until `/api/health` (phase 2).
+- **Next.js packages:** `serverExternalPackages` wasn't needed so far, because nothing in the build imports `@devmentor/db` yet. Re-check this in phase 2.
 
 ## Acceptance criteria
 
@@ -155,7 +219,4 @@ Development uses a locally installed PostgreSQL server; this environment runs Po
 1. **Local PostgreSQL:** use the locally installed server, not Docker (decided 2026-10-17).
 2. **Starter page:** replace it with a minimal DevMentor placeholder (decided 2026-10-17).
 3. **Backend route prefix:** `/admin`. The route group stays `(backend)` (decided 2026-10-17).
-
-## Open questions
-
-4. **Health route:** keep `/api/health` permanently, or remove it once the wiring is verified? If it stays, it returns only `ok` or `error`, never error details or versions. The default is to keep it.
+4. **Health route:** keep `/api/health` permanently. It returns only `{"status":"ok","db":"ok"}` (200) or `{"status":"error","db":"error"}` (503), with no error details, versions or hostnames (decided 2026-10-17).

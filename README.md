@@ -2,7 +2,7 @@
 
 DevMentor is a Next.js + TypeScript + React application backed by PostgreSQL. It is organized as an npm-workspaces monorepo.
 
-> **Status:** the repository still holds the default single Next.js app in `src/`. The first implementation step is to move it into `packages/app` and scaffold the other packages described below.
+> **Status:** monorepo migration in progress ([spec](.ai/specs/2026-10-17-monorepo-migration.md)). Phase 1 is done: the workspace and packages are in place and the app lives in `packages/app`. Next are database/DI runtime wiring (phase 2) and the UI (phase 3). `/` still shows the starter page.
 
 ## Tech stack
 
