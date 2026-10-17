@@ -22,6 +22,9 @@ DevMentor is an npm-workspaces monorepo. These are fixed decisions. Don't introd
 | Dependency injection | Awilix |
 | Frontend (public) pages | Tailwind CSS 4 |
 | Backend (admin) pages | shadcn/ui (on Tailwind CSS 4) |
+| Validation | Zod 4 (env, shared request schemas) |
+| Logging | pino (the shared logger from `@devmentor/core`) |
+| Tests | Vitest 5 + Testing Library (jsdom for `ui`) |
 | Package manager | npm workspaces (keep `package-lock.json`; don't add pnpm/yarn lockfiles) |
 | Runtime | Node.js >= 22.17 (MikroORM 7 requirement) |
 
@@ -30,11 +33,16 @@ Use the latest stable versions. Before using a library API, check the installed 
 ## Commands
 
 Run from the repo root:
-- `npm run lint`, `npm run typecheck` and `npm run build` must pass before a change is done. There's no test framework yet.
-- For UI or behavior changes, also check the running app:
+- **The gate:** `npm run validate` must pass before a change is done. It runs lint, typecheck, test, build and audit:
+  - `npm run lint`: ESLint, including the package-boundary and code-quality rules.
+  - `npm run typecheck`: the root tooling plus every package.
+  - `npm test`: Vitest (`npm run test:watch` while developing).
+  - `npm run build`: the production build.
+  - `npm run audit`: `npm audit` gated by `audit-allowlist.json`. Every entry needs a reason and a `reviewBy` date.
+- **Running app:** for UI or behavior changes, also check it:
   - `npm run dev` starts it; in this sandbox, the pm2 `workspace-preview` process serves it on port 3000.
   - Use `GET /api/health` for the database.
-- Migrations: `npm run db:migration:create` and `npm run db:migrate`. See `README.md` for the full list.
+- **Migrations:** `npm run db:migration:create` and `npm run db:migrate`. See `README.md` for the full list.
 
 ## Packages
 
@@ -61,6 +69,113 @@ packages/
 - Internal packages ship TypeScript source (no build step); Turbopack transpiles workspace packages automatically. Each package has its own `package.json` (`"private": true`) and `tsconfig.json` extending a shared base.
 - Add a dependency to the package that uses it (`npm install <pkg> -w @devmentor/<name>`), not to the root. Only shared tooling belongs at the root.
 - A new package under `packages/` needs a spec and a README update.
+
+## Domain concept convention
+
+Domain code isn't organized into `modules/`. Each concept (`auth`, `mentors`, `availability`, `bookings`, `payments`, `messages`, `favorites`, `reviews`, …) is a same-named sub-folder repeated across the layers that need it:
+
+- `packages/db/src/entities/<concept>/<name>.entity.ts`, registered in `entities/index.ts`.
+- `packages/core/src/services/<concept>/<name>.service.ts`, registered in `container.ts` (`asClass(...).scoped()`) and typed in `cradle.ts`.
+- `packages/core/src/validators/<concept>/<name>-<action>.schema.ts`: shared Zod schemas, required as soon as there's create or update input.
+- `packages/app/src/app/api/<concept>/route.ts`, and the matching `page.tsx` under the relevant persona route group.
+- `packages/ui/src/components/<concept>/` for components tied to that concept's domain shape.
+
+To scaffold a concept, follow section 2 of `.ai/docs/engineering-standards.md`.
+
+- Create a concept folder only when its first file is added; never scaffold empty ones.
+- The same applies to `core/src/validators/` and `core/src/events/`: create them with the first concept that needs them.
+- This is a directory convention, not a module runtime: there's no per-concept `setup.ts`/`acl.ts` and no auto-discovery.
+- Event IDs follow `concept.entity.action` in the past tense (e.g. `bookings.booking.created`). They're emitted after a successful mutation through a typed in-process emitter in `core/src/events`, registered on the `Cradle`. There's no queue or worker.
+
+## Reusable API & UI layer
+
+Every route and every page reuses two shared layers instead of re-implementing fetch, validation, auth or error handling.
+
+**Server: `packages/core/src/http/`**, exported from `@devmentor/core`:
+- `errors.ts`: the `AppError` hierarchy (`ValidationError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `ConflictError`, `ServiceUnavailableError`).
+  - Services throw these and never build HTTP responses.
+  - `message` is client-visible, so it must never contain internal details.
+- `apiHandler(options, handler)`: wraps every route handler and runs the CSRF header check, then `authorize`, then the handler.
+  - The result becomes the envelope `{ ok: true, data }` or `{ ok: false, error: { code, message, fieldErrors? } }`.
+  - It logs unexpected errors and returns a generic 500.
+  - `authorize` is required: pass `publicRoute` explicitly for public endpoints.
+  - Routes never write their own `try/catch` or `Response.json` error handling.
+  - Read bodies with `parseJsonBody(request, schema)` only.
+- `makeCrudRoute({ access: { read, write }, createSchema, updateSchema, service })`: returns `{ GET, POST, PUT, DELETE }` for plain CRUD resources. Workflow endpoints (booking, reschedule, payment) use `apiHandler` directly.
+- `auth.ts` comes with the auth concept: `requireSession`, `requireRole` and ownership assertions, used as `authorize` or as the first call in a handler.
+
+**Client: `packages/ui/src/backend/`**, exported as `@devmentor/ui/backend/{api,forms,tables,feedback}`:
+- `api`: `apiCall`/`apiCallOrThrow`, the only sanctioned `fetch()` (ESLint bans `fetch` elsewhere in app and ui).
+- `forms`: `CrudForm`, bound to the same Zod schema as the route. Use it for every create/edit form.
+- `tables`: `DataTable`, for every list.
+- `feedback`: `LoadingMessage`, `ErrorMessage` and `EmptyState`, the only loading, error and empty renderers.
+
+A bespoke form, table or fetch needs a stated reason in the PR. The envelope is a shape convention: `core/src/http/envelope.ts` and `ui/src/backend/api/types.ts` each declare it (ui must not import core), so keep them in sync. A shared package for it would be an Ask First architecture change.
+
+**Where a new reusable component goes:**
+1. A shadcn primitive goes in `ui/src/components/ui/`, added only with `npx shadcn@latest add`.
+2. A generic, concept-agnostic panel pattern (a new field type, table cell or feedback state) goes in `ui/src/backend/<category>/`.
+3. A component tied to one concept's domain shape goes in `ui/src/components/<concept>/`, named after the same concept folder used in `db` and `core`.
+4. A component used by exactly one page is colocated next to that `page.tsx`. Promote it once a second page needs it.
+
+## Engineering standards
+
+`.ai/docs/engineering-standards.md` is the full standard: naming table, rationale, review checklist and target structure. The rules below are binding. Where that document doesn't match this repo, this file wins. In particular, use `await connection()` from `next/server` for request-time rendering, not the legacy `export const dynamic = "force-dynamic"`.
+
+**Naming:**
+- Concept folders are plural single words (`bookings`).
+- Entities use PascalCase singular names in `<name>.entity.ts`. Tables and columns are snake_case, with plural table names. IDs are UUIDs.
+- Services are `<Name>Service` in `<name>.service.ts`.
+- External integrations are ports, `<Name>Gateway`/`<Name>Port` in `<name>.port.ts`, with adapters in `adapters/`.
+- Zod schemas are named `<camelCase>Schema` in `<name>.schema.ts`.
+- Errors are named `<Name>Error` and extend `AppError`.
+- Cradle keys are camelCase.
+
+**Architecture:**
+- External integrations (payments, notifications, video) go through a port interface in `core`, with a mock adapter for the MVP. Vendor SDKs never reach `db` or `core` callers.
+- The app must build and boot with no database reachable, so database access happens only at request time.
+- Check-then-write on shared state (slot availability, booking status) runs in one DB transaction, backed by a unique constraint.
+- State transitions that can be retried (payment confirmation, webhooks) are idempotent.
+- Prefer the smaller, more explicit change: composition over inheritance, and YAGNI (no RBAC, multi-tenancy, queue or plugin loader).
+
+**Security minimums.** These are blockers in review unless marked otherwise:
+- **Server-side enforcement:**
+  - Enforce auth on the server for every non-public route.
+  - Authorize the specific record (ownership), not just "is logged in".
+  - Fail closed on any error inside a security check.
+- **Input handling:**
+  - Write endpoints use the parsed Zod output only, never the raw body (no mass assignment).
+  - No raw SQL built from user input.
+  - Recompute prices on the server (`mentor.rate × duration`) and never persist a client-supplied price.
+- **Passwords:** bcrypt with cost ≥ 12, or argon2id (≥ 19 MiB memory, ≥ 2 iterations, parallelism 1) if there's a reason to switch.
+- **JWT:**
+  - HS256 at minimum, with a secret of ≥ 32 random bytes from the Zod-validated env.
+  - Short expiry (e.g. 24h) and no refresh flow in the MVP. That's a documented limitation; don't extend the lifetime to compensate.
+- **Cookies:** `httpOnly`, `secure` in production, `sameSite=lax` (`strict` for auth-only routes) and a scoped `path`. Never store the token in `localStorage`.
+- **CSRF:** `sameSite` cookies plus the custom header that `apiCall` sends and `apiHandler` checks.
+- **Rate limiting:** a per-IP+email attempt counter with cooldown on login, register and password reset. Flag that it needs a stronger backend before production traffic. (major)
+- **Auth errors:** use generic messages ("invalid credentials") that never reveal whether an email is registered.
+- **Secrets:** never log or return secrets, tokens, passwords or full JWTs. The logger redacts these fields; keep its redaction list in sync with new fields.
+- **Dependencies:** `npm run audit` is part of the gate. Don't add a dependency for something 20 lines of local code covers.
+
+**Code quality:**
+- No `any`; narrow `unknown` at runtime. This is lint-enforced.
+- No empty `catch` and no swallowed errors: handle, log with context through the shared logger, or rethrow. No `console`. Both are lint-enforced.
+- Use early returns instead of deep nesting.
+- No magic numbers or strings: name the constant and say why the value was chosen.
+- Booleans read positively (`isConfirmed`). Avoid bare `true`/`false` arguments at call sites.
+- No dead code, commented-out code or debug output.
+- Comments explain only a non-obvious *why*.
+- Extract a copy-pasted block with branching logic; three similar lines are fine.
+- A diff traces entirely to its stated purpose: no drive-by renames or formatting passes.
+
+**Tests:**
+- A behavior change ships with a test that fails on the old code.
+- A bug fix ships a regression test. This is required for security-relevant fixes.
+- Race-sensitive flows (booking, reschedule) get an integration test of the concurrent case.
+- Tests are colocated as `src/**/*.test.{ts,tsx}`, run with Vitest.
+
+Before requesting review, go through the review checklist in section 1 of the standards document.
 
 ## Data layer (`@devmentor/db`)
 
@@ -105,7 +220,8 @@ All AI agents (Claude Code, Codex, Cursor, etc.) working in this repo MUST follo
 │   └── archive/             # superseded / abandoned specs
 ├── runs/                # Logs of autonomous AI runs: YYYY-MM-DD-slug.md
 ├── lessons.md           # Index of lessons learned (long-term LLM memory)
-└── lessons/             # Detailed lessons: YYYY-MM-DD-slug.md
+├── lessons/             # Detailed lessons: YYYY-MM-DD-slug.md
+└── docs/                # Standing reference documents (e.g. engineering-standards.md); not dated
 ```
 
 `.ai/cezar/` is tooling-managed; do not modify it.
@@ -128,6 +244,6 @@ All files in `specs/`, `runs/` and `lessons/` are named `YYYY-MM-DD-slug.md`: th
 Adapted from Boris Cherny's Claude Code tips.
 
 - **Plan before building.** For multi-step or multi-file work, plan first (plan mode if available) and refine the plan until the implementation is straightforward; the plan belongs in the spec. If the work goes sideways, stop and re-plan rather than patching forward.
-- **Prove it works.** A change is done only when verified: run `npm run lint` and `npm run build` (plus tests, once they exist), and exercise UI or behavior changes in the running app. Report failures as they are; never claim success without running the checks.
+- **Prove it works.** A change is done only when verified: run `npm run validate`, and exercise UI or behavior changes in the running app. Report failures as they are; never claim success without running the checks.
 - **Own bug fixes.** Given a bug report, error log or failing check, reproduce it, find the root cause and fix it without step-by-step guidance. If a fix feels hacky, scrap it and implement the clean solution.
 - **Use subagents** for broad codebase searches and independent parallel work, to keep the main context focused.

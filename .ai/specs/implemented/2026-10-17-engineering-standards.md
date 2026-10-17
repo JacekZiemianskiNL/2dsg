@@ -1,7 +1,7 @@
 # Apply the engineering standards
 
 - **Date:** 2026-10-17
-- **Status:** Approved 2026-10-17, implementation in progress (see Plan and progress)
+- **Status:** Implemented 2026-10-17 (see Plan and progress)
 - **Source:** `.ai/docs/engineering-standards.md` (the standing document; this spec is how this repo applies it)
 
 ## Context
@@ -141,7 +141,7 @@ Done when:
 | 2 | Done 2026-10-17 | Vitest 5 projects for core, db (node) and ui (jsdom); 13 env tests pass. `npm run audit` passes only through the allowlist, and exits 1 when the entry is removed, expired or stale. `npm run validate` exits 0. |
 | 3 | Done 2026-10-17 | 52 tests pass. `/api/health` returns the envelope (200 / 503); a bad `DATABASE_URL` gives a generic logged 500; POST gives 405. `/admin`: Operational / Unavailable. Connections stay at 1 across HMR. `npm run validate` exits 0. |
 | 4 | Done 2026-10-17 | 81 tests pass. A lint probe catches all 6 `fetch` variants in app and ui. `/` and `/admin` screenshots are correct: `/admin` shows Operational with the database up and Unavailable (in red) with it down, with no console errors beyond the expected 503 notice. `/admin` is now statically prerendered. |
-| 5 | Not started | |
+| 5 | Done 2026-10-17 | `AGENTS.md` has the concept convention, the reusable-layer rules and the binding standards. Full verification passes after a clean `npm ci`. See the phase 5 notes below. |
 
 ### Phase 1 notes
 
@@ -186,6 +186,24 @@ Done when:
 - **Hooks lint:** fixed a React hooks finding (synchronous `setState` in an effect) by only resetting state from the Retry handler.
 - **Test typing:** jest-dom matcher types come from including `test/setup-dom.ts` in the ui tsconfig.
 
+### Phase 5 notes
+
+- **`AGENTS.md`:**
+  - New sections "Domain concept convention", "Reusable API & UI layer" (standards section 3, adapted to the real paths and exports) and "Engineering standards" (naming, architecture, security minimums, code quality, tests, a pointer to the review checklist).
+  - "Engineering standards" states that `AGENTS.md` wins where the standards document doesn't match this repo, e.g. `connection()` instead of `force-dynamic`.
+  - Commands now name `npm run validate` as the gate.
+  - The stack table lists Zod, pino and Vitest, and `.ai/docs/` is in the `.ai/` tree.
+- **README:** a "Shared API & UI layer" section, test/audit/validate commands and stack rows.
+- **Full verification**, 2026-10-17, with the sandbox's `NODE_ENV=development`, after deleting every `node_modules` and `.next`:
+
+| Check | Result |
+| --- | --- |
+| `npm ci` (Node 24.21, npm 11.19) | exit 0 in 7s; lockfile unchanged; no per-package `node_modules`; Next docs present |
+| `npm run validate` | exit 0 in 24s: lint, typecheck, 81 tests in 11 files, build (`/`, `/admin` static; `/api/health` dynamic), audit gate |
+| `npm start` (database up) | `/` 200, `/admin` 200, `/api/health` 200 `{"ok":true,"data":{"status":"ok","db":"ok"}}`, unknown path 404, `DELETE /api/health` 405 |
+| `npm start` (database unreachable) | `/` 200, `/admin` 200, `/api/health` 503 `service_unavailable` |
+| Dev preview (pm2) | `/`, `/admin`, `/api/health` 200; headless Chromium shows "DevMentor" and "Operational", 0 page errors |
+
 ## Out of scope
 
 - Domain concepts and entities (auth, mentors, bookings, …), so `auth.ts`, `events/`, `validators/`, `base.entity.ts` and `define.ts` are deferred.
@@ -194,9 +212,9 @@ Done when:
 
 ## Acceptance criteria
 
-- [ ] The dependency direction `app → core → db` with `ui` standalone is enforced by ESLint and documented.
-- [ ] The container and `Cradle` are in `packages/core/src/container/`, with every registration explicit.
-- [ ] The `core/src/http` and `ui/src/backend` layers exist with passing unit tests.
-- [ ] `/api/health` and `/admin` use the shared layers.
-- [ ] `npm run validate` (lint, typecheck, test, build, audit) passes after a clean `npm ci`.
-- [ ] `AGENTS.md` contains the concept convention, the reusable-layer rules and the binding standards.
+- [x] The dependency direction `app → core → db` with `ui` standalone is enforced by ESLint and documented.
+- [x] The container and `Cradle` are in `packages/core/src/container/`, with every registration explicit.
+- [x] The `core/src/http` and `ui/src/backend` layers exist with passing unit tests.
+- [x] `/api/health` and `/admin` use the shared layers.
+- [x] `npm run validate` (lint, typecheck, test, build, audit) passes after a clean `npm ci`.
+- [x] `AGENTS.md` contains the concept convention, the reusable-layer rules and the binding standards.

@@ -16,6 +16,7 @@ DevMentor is a Next.js + TypeScript + React application backed by PostgreSQL. It
 | Dependency injection | [Awilix](https://github.com/jeffijoe/awilix) | One composition root in `core`, per-request scopes |
 | Validation | [Zod 4](https://zod.dev) | Env and (later) shared request schemas |
 | Logging | [pino](https://getpino.io) | Shared logger with secret redaction |
+| Tests | [Vitest 5](https://vitest.dev) + Testing Library | One project per package; jsdom for `ui` |
 | Frontend styling | [Tailwind CSS 4](https://tailwindcss.com) | Public-facing pages |
 | Backend UI | [shadcn/ui](https://ui.shadcn.com) | Admin/back-office pages, built on Tailwind |
 | Package manager | npm workspaces | Node.js >= 22.17 |
@@ -78,6 +79,20 @@ packages/app route/page ── withScope() ──► scoped: EntityManager (orm.
 - Schema changes go through committed migrations in `packages/db/src/migrations`. Applied migrations are never edited.
 - Configuration comes from environment variables, validated with Zod (see `.env.example`). `DATABASE_URL` is the PostgreSQL connection string, and `LOG_LEVEL` sets the pino level. `.env*` files are git-ignored.
 
+### Shared API & UI layer
+
+Engineering rules are in [`.ai/docs/engineering-standards.md`](.ai/docs/engineering-standards.md), summarized in `AGENTS.md`.
+
+- **Server:** `@devmentor/core` provides the `AppError` hierarchy, `apiHandler` and `makeCrudRoute`.
+  - `apiHandler` checks the CSRF header, runs the required `authorize` check, maps errors to the JSON envelope `{ ok, data | error }`, and logs unexpected failures.
+  - `makeCrudRoute` builds config-driven CRUD routes.
+- **Client:** `@devmentor/ui/backend/*` provides:
+  - `apiCall`, the only sanctioned `fetch`.
+  - `CrudForm`, a schema-driven form.
+  - `DataTable`.
+  - The loading, error and empty feedback components.
+- **Domain code:** organized in same-named concept folders (`entities/<concept>`, `services/<concept>`, `api/<concept>`, …) inside the existing packages, created only when a concept's first file is added.
+
 ### UI
 
 | Area | Route group | Styling |
@@ -124,13 +139,16 @@ Run these from the repo root:
 | `npm run dev` | Next.js dev server for `@devmentor/app` (pass flags after `--`, e.g. `npm run dev -- --port 3001`) |
 | `npm run build` / `npm start` | Production build and server (always run with `NODE_ENV=production`) |
 | `npm run lint` | ESLint for all packages, including the package-boundary rules |
-| `npm run typecheck` | `tsc --noEmit` in every package |
+| `npm run typecheck` | `tsc` for the root tooling and every package |
+| `npm test` / `npm run test:watch` | Vitest: unit and component tests for all packages |
+| `npm run audit` | `npm audit` gated by `audit-allowlist.json` (fails on new, expired or stale entries) |
+| `npm run validate` | The full gate: lint, typecheck, test, build, audit |
 | `npm run db:migration:create` | Generate a migration from entity changes (`-- --blank` for an empty one) |
 | `npm run db:migrate` | Apply pending migrations |
 
 Run a script in a single package with `-w`, for example `npm run migration:list -w @devmentor/db`. Add dependencies to the package that uses them: `npm install <pkg> -w @devmentor/db`.
 
-There is no test framework yet. `lint`, `typecheck` and `build` are the automated checks.
+Tests are colocated with the code as `src/**/*.test.{ts,tsx}`. `npm run validate` must pass before a change is done.
 
 ## Working with AI agents
 
