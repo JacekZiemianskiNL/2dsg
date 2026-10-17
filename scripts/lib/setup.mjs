@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
@@ -329,13 +330,13 @@ export async function runSetup(options) {
 
   await step("Node.js version", async () => ({
     status: "ran",
-    detail: checkNodeVersion(options.nodeVersion, await options.read(`${repoRoot}/.nvmrc`)),
+    detail: checkNodeVersion(options.nodeVersion, await options.read(join(repoRoot, ".nvmrc"))),
   }));
   await step("Dependencies", async () => {
     await runNpm(runCommand, "npm install", ["install"], { cwd: repoRoot, env });
     return { status: "ran", detail: "npm install is up to date" };
   });
-  await step("Environment file", () => ensureEnvFile({ ...options, exampleFile: `${repoRoot}/.env.example` }));
+  await step("Environment file", () => ensureEnvFile({ ...options, exampleFile: join(repoRoot, ".env.example") }));
 
   const { databaseUrl, source } = resolveDatabaseUrl(env, await options.read(envFile));
   await step("Database", async () => {
@@ -403,7 +404,7 @@ export function randomPassword() {
 export async function main(deps = {}) {
   const {
     repoRoot = REPO_ROOT,
-    envFile = `${REPO_ROOT}/.env`,
+    envFile = join(REPO_ROOT, ".env"),
     env = process.env,
     nodeVersion = process.versions.node,
     loadClientFactory = loadPgClientFactory,
