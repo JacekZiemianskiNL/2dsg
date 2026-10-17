@@ -1,7 +1,7 @@
 # GitHub CI, 100% unit coverage and browser integration tests
 
 - **Date:** 2026-10-17
-- **Related spec:** `.ai/specs/2026-10-17-ci-and-test-coverage.md`
+- **Related spec:** `.ai/specs/implemented/2026-10-17-ci-and-test-coverage.md`
 - **Branch:** `feat/ci-and-coverage`, based on `feat/engineering-standards`
 
 ## Goal
@@ -34,11 +34,13 @@
 - **Integration:** `npm run test:integration` passes 8/8. Throwaway databases and app processes are cleaned up.
 - **Harness failure modes:** a missing build gives a clear error, and a missing Docker runtime gives the Testcontainers runtime error.
 - **Workflow:** actionlint passes on the workflow.
-- **Not verified yet:** the workflow on GitHub (Testcontainers, `agent-browser install --with-deps`). It needs a push and a PR, which waits on user confirmation.
+- **On GitHub:** the user approved a push and a draft PR. PR #1 (https://github.com/JacekZiemianskiNL/2dsg/pull/1), run 39026337223, had all 5 jobs green on the first attempt.
+  - Integration: 8/8 passed, with `agent-browser install --with-deps` installing Chrome and Testcontainers PostgreSQL (no `INTEGRATION_DATABASE_URL` in CI).
+  - Unit: 150 tests, 100% on all metrics.
 
 ## Outcome
 
-Done locally. CI verification is pending.
+Done. The integration path was verified on GitHub.
 
 ## Issues found along the way
 
@@ -48,7 +50,7 @@ Done locally. CI verification is pending.
 
 ## Follow-ups
 
-- Push `feat/ci-and-coverage` and open a PR to run CI (needs the user's OK).
+- PR #1 is a draft: review it, mark it ready and merge when satisfied.
 - Once CI is green, consider making the five jobs required status checks in GitHub branch protection for `main`.
 
 ## Lessons added

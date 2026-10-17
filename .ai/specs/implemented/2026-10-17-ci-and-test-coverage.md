@@ -1,7 +1,7 @@
 # GitHub CI, 100% unit coverage and browser integration tests
 
 - **Date:** 2026-10-17
-- **Status:** Approved 2026-10-17 (user request), implementation in progress (see Plan and progress)
+- **Status:** Implemented 2026-10-17 (see Plan and progress)
 
 ## Context
 
@@ -88,7 +88,7 @@ Done when the workflow file is valid and runs green on a PR (see phase 5).
 | 2 | Done 2026-10-17 | 8 integration tests pass locally in 4s through `INTEGRATION_DATABASE_URL`, and throwaway databases and processes are cleaned up. A missing build and a missing Docker runtime both fail with clear errors. Testcontainers itself runs only in CI. |
 | 3 | Done 2026-10-17 | `.github/workflows/ci.yml` (5 jobs) plus a composite setup action (`.nvmrc`, npm cache, `npm ci`). actionlint 1.7.12 reports no problems. Actions are on their current majors (checkout, setup-node and upload-artifact v7). |
 | 4 | Done 2026-10-17 | `AGENTS.md`: a mandatory 100% unit coverage rule with no workarounds, integration tests for user-facing flows, the commands and CI. README: commands, a CI table, stack rows. Node 24 in `engines`/`.nvmrc`. |
-| 5 | Local done, CI pending | Clean `npm ci` (11s), `npm run validate` exit 0 (150 tests, 100% coverage), `npm run test:integration` 8/8 in 4s with no leftovers. The GitHub run waits on the user confirming push and PR. |
+| 5 | Done 2026-10-17 | Local checks as in phase 4. On GitHub, PR #1 run 39026337223 had all 5 jobs green on the first attempt: lint 58s, unit 1m21s (150 tests, 100% on all metrics), build 1m20s, integration 1m52s (8/8 with Testcontainers PostgreSQL and agent-browser Chrome), audit 56s. |
 
 ### Phase 1 notes
 
@@ -120,7 +120,7 @@ Done when the workflow file is valid and runs green on a PR (see phase 5).
 
 ## Acceptance criteria
 
-- [ ] Every PR runs lint, typecheck, unit (with the 100% coverage gate), build, integration and audit jobs.
-- [ ] `npm run test:coverage` reports 100% lines, branches, functions and statements for all included files.
-- [ ] `npm run test:integration` starts PostgreSQL (Testcontainers in CI), migrates it, starts the built app and passes browser-driven tests with agent-browser, then cleans everything up.
-- [ ] `AGENTS.md` makes 100% unit coverage mandatory for every new feature.
+- [x] Every PR runs lint, typecheck, unit (with the 100% coverage gate), build, integration and audit jobs.
+- [x] `npm run test:coverage` reports 100% lines, branches, functions and statements for all included files.
+- [x] `npm run test:integration` starts PostgreSQL (Testcontainers in CI), migrates it, starts the built app and passes browser-driven tests with agent-browser, then cleans everything up.
+- [x] `AGENTS.md` makes 100% unit coverage mandatory for every new feature.
