@@ -44,13 +44,13 @@ Each step reports `done`, `skipped (already done)` or a failure.
 | --- | --- | --- | --- |
 | 1 | Node version check against `.nvmrc` | never; it's a check | major below `.nvmrc` → exit 1 with the required version |
 | 2 | `npm install` | never; it always runs and reports `up to date` when npm changes nothing. An mtime heuristic would miss workspace `package.json` edits. | npm exit code is passed through |
-| 3 | Create `.env` from `.env.example`, mode `0600` | `.env` exists, and it's never overwritten | I/O error |
-| 4 | Resolve `DATABASE_URL` | the value comes from the shell (not written) or is already in `.env` | invalid URL → `loadDatabaseEnv`-style message, nothing written |
+| 3 | Environment file: create `.env` from `.env.example` (mode `0600`) with `DATABASE_URL`'s password replaced by a generated one; or add a generated `DATABASE_URL` to an existing `.env` that has none | `.env` already sets `DATABASE_URL`, and it's never overwritten | I/O error |
+| 4 | Resolve `DATABASE_URL` (no output of its own; the source is shown on the Database line) | always resolves: shell, else `.env` | invalid URL → message at the Database step, nothing provisioned |
 | 5 | Provision the role and database | a connection with the target URL succeeds | see Edge Cases |
 | 6 | `npm run db:migrate`, with the resolved `DATABASE_URL` in the child env | never; it always runs and reports `ran`. MikroORM's `migration:up` already does nothing when no migration is pending. | npm exit code is passed through |
 | 7 | Summary and next steps (`npm run dev`, the URLs from README step 4) | | |
 
-- **Step 4 resolution order** mirrors runtime precedence: the shell, then `.env`, then a newly generated value.
+- **Step 4 resolution order** mirrors runtime precedence: the shell, then `.env`. Step 3 has already put a generated value in `.env` when there was none. It generates the value right away instead of copying the template as-is, so `.env.example`'s sample password is never persisted (an implementation finding from PR #7). A shell `DATABASE_URL` is never written to `.env`.
 - **Step statuses:** `done` (state changed), `skipped` (already in place) and `ran` (an always-run step: `npm install`, migrations, the version check). On a rerun, no step reports `done`. This is the definition of idempotent used in the tests.
 - **Reading `.env`** uses `util.parseEnv` (Node ≥ 21.7), the same parser behind `--env-file`/`loadEnvFile`, so setup reads exactly what the runtime reads.
 - **A generated value** is the `.env.example` URL with the password replaced by `randomBytes(24).toString("base64url")`.
