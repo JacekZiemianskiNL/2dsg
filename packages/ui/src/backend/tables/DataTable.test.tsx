@@ -67,4 +67,31 @@ describe("DataTable", () => {
     rerender(<DataTable {...base} rows={rows} pagination={{ page: 3, pageSize: 2, total: 5, onPageChange }} />);
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
+
+  it("renders null and undefined values as empty cells and non-destructive actions as ghost buttons", async () => {
+    const view = vi.fn();
+    const sparse = [{ id: "s3", mentor: null, minutes: undefined }] as unknown as Session[];
+    render(
+      <DataTable
+        columns={[{ key: "mentor", header: "Mentor" }, { key: "minutes", header: "Minutes" }]}
+        getRowId={(row) => row.id}
+        label="Sparse"
+        rows={sparse}
+        rowActions={() => [{ label: "View", onSelect: view }]}
+      />,
+    );
+    const [, row] = screen.getAllByRole("row");
+    expect(within(row!).getAllByRole("cell").slice(0, 2).map((cell) => cell.textContent)).toEqual(["", ""]);
+    const button = within(row!).getByRole("button", { name: "View" });
+    expect(button.className).not.toContain("bg-destructive");
+    await userEvent.click(button);
+    expect(view).toHaveBeenCalledOnce();
+  });
+
+  it("goes to the previous page", async () => {
+    const onPageChange = vi.fn();
+    render(<DataTable {...base} rows={rows} pagination={{ page: 2, pageSize: 2, total: 5, onPageChange }} />);
+    await userEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(onPageChange).toHaveBeenCalledWith(1);
+  });
 });

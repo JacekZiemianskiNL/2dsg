@@ -48,7 +48,7 @@ function toFieldErrors(error: z.ZodError): FieldErrors {
 function toRawValues(fields: CrudField[], values: Record<string, string>): Record<string, unknown> {
   const raw: Record<string, unknown> = {};
   for (const field of fields) {
-    const value = values[field.name] ?? "";
+    const value = values[field.name];
     // An empty input means "not provided", so optional fields stay optional.
     if (value === "") continue;
     raw[field.name] = field.type === "number" ? Number(value) : value;
@@ -125,7 +125,7 @@ export function CrudForm<S extends ObjectSchema>({
         const common = {
           id: inputId,
           name: field.name,
-          value: values[field.name] ?? "",
+          value: values[field.name],
           placeholder: field.placeholder,
           disabled: isSubmitting,
           "aria-invalid": errors ? true : undefined,

@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { captureLogs } from "./testing/captureLogs";
-import { createLogger } from "./logger";
+import { createLogger, getLogger } from "./logger";
 
 describe("createLogger", () => {
   it("redacts secrets at the top level and one level deep", () => {
@@ -32,5 +32,32 @@ describe("createLogger", () => {
     logger.info("hidden");
     logger.warn("shown");
     expect(lines.map((line) => line.msg)).toEqual(["shown"]);
+  });
+});
+
+describe("getLogger", () => {
+  const globalForLogger = globalThis as typeof globalThis & { __devmentorLogger?: unknown };
+
+  beforeEach(() => {
+    delete globalForLogger.__devmentorLogger;
+  });
+  afterEach(() => {
+    delete globalForLogger.__devmentorLogger;
+    vi.unstubAllEnvs();
+  });
+
+  it("creates one process-wide logger at LOG_LEVEL and reuses it", () => {
+    vi.stubEnv("LOG_LEVEL", "debug");
+    const logger = getLogger(captureLogs().destination);
+    expect(logger.level).toBe("debug");
+    expect(getLogger()).toBe(logger);
+  });
+
+  it("falls back to info and warns when LOG_LEVEL is invalid", () => {
+    vi.stubEnv("LOG_LEVEL", "chatty");
+    const { destination, lines } = captureLogs();
+    const logger = getLogger(destination);
+    expect(logger.level).toBe("info");
+    expect(lines).toEqual([expect.objectContaining({ level: 40, msg: "Invalid LOG_LEVEL; using info" })]);
   });
 });

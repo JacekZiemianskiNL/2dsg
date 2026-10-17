@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -93,5 +93,50 @@ describe("CrudForm", () => {
     render(<CrudForm schema={schema} fields={fields} initialValues={{ name: "Ada", rate: 80 }} onSubmit={vi.fn()} />);
     expect(screen.getByLabelText("Name")).toHaveValue("Ada");
     expect(screen.getByLabelText("Hourly rate")).toHaveValue(80);
+  });
+
+  it("ignores a submit while one is already in flight", async () => {
+    let finish: () => void = () => {};
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const { user } = setup(onSubmit);
+    await user.type(screen.getByLabelText("Name"), "Ada");
+    await user.type(screen.getByLabelText("Hourly rate"), "80");
+    const form = screen.getByRole("button", { name: "Save" }).closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    finish();
+    await screen.findByRole("button", { name: "Save" });
+    fireEvent.submit(form);
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    finish();
+    await screen.findByRole("button", { name: "Save" });
+  });
+
+  it("shows a server error without field errors as a form error only", async () => {
+    const onSubmit = vi.fn(async (): Promise<ApiResult<unknown>> => ({
+      ok: false,
+      status: 409,
+      error: { code: "conflict", message: "That name is taken" },
+    }));
+    const { user } = setup(onSubmit);
+    await user.type(screen.getByLabelText("Name"), "Ada");
+    await user.type(screen.getByLabelText("Hourly rate"), "80");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("That name is taken");
+    expect(screen.getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("submits textarea input and ignores Escape without onCancel", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => undefined);
+    render(<CrudForm schema={schema} fields={fields} onSubmit={onSubmit} />);
+    await user.type(screen.getByLabelText("Name"), "Ada");
+    await user.type(screen.getByLabelText("Hourly rate"), "80");
+    await user.type(screen.getByLabelText("Bio"), "Mentor");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledWith({ name: "Ada", rate: 80, bio: "Mentor" });
   });
 });

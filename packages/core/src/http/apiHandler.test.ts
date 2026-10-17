@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { captureLogs } from "../testing/captureLogs";
-import { createLogger } from "../logger";
+import { createLogger, getLogger } from "../logger";
 import { apiHandler, parseJsonBody, publicRoute, type RouteContext } from "./apiHandler";
 import { CSRF_HEADER, CSRF_HEADER_VALUE } from "./envelope";
 import { ConflictError, NotFoundError, UnauthorizedError } from "./errors";
@@ -142,5 +142,24 @@ describe("parseJsonBody", () => {
       status: 400,
       message: "Request body must be valid JSON",
     });
+  });
+});
+
+describe("apiHandler default logger", () => {
+  const globalForLogger = globalThis as typeof globalThis & { __devmentorLogger?: unknown };
+
+  afterEach(() => {
+    delete globalForLogger.__devmentorLogger;
+  });
+
+  it("logs unexpected errors through the shared logger when none is given", async () => {
+    delete globalForLogger.__devmentorLogger;
+    const logs = captureLogs();
+    getLogger(logs.destination);
+    const response = await apiHandler({ authorize: publicRoute }, async () => {
+      throw new Error("boom");
+    })(request("GET"), context);
+    expect(response.status).toBe(500);
+    expect(logs.lines).toEqual([expect.objectContaining({ msg: "Unhandled API error" })]);
   });
 });

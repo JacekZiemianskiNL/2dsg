@@ -1,10 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { loadDatabaseEnv } from "./env";
 
 const URL = "postgresql://user:pass@localhost:5432/devmentor";
 
 describe("loadDatabaseEnv", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("reads process.env when no env is passed", () => {
+    vi.stubEnv("DATABASE_URL", URL);
+    expect(loadDatabaseEnv().url).toBe(URL);
+  });
+
   it("applies defaults when only DATABASE_URL is set", () => {
     expect(loadDatabaseEnv({ DATABASE_URL: URL })).toEqual({
       url: URL,

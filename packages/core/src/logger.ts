@@ -23,8 +23,9 @@ const globalForLogger = globalThis as typeof globalThis & { __devmentorLogger?: 
 /**
  * The process-wide logger, also registered in the container as `logger`.
  * Available even when the rest of the configuration is invalid, so configuration errors can be logged.
+ * `destination` only applies when the logger is first created (tests capture output with it).
  */
-export function getLogger(): Logger {
+export function getLogger(destination?: DestinationStream): Logger {
   if (globalForLogger.__devmentorLogger) return globalForLogger.__devmentorLogger;
   let level: LogLevel = "info";
   let levelError: unknown;
@@ -33,7 +34,7 @@ export function getLogger(): Logger {
   } catch (error) {
     levelError = error;
   }
-  const logger = createLogger(level);
+  const logger = createLogger(level, destination);
   if (levelError) logger.warn({ err: levelError }, "Invalid LOG_LEVEL; using info");
   globalForLogger.__devmentorLogger = logger;
   return logger;

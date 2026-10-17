@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import type { Cradle } from "../container/cradle";
+
+const { defaultCradle, withScope } = vi.hoisted(() => {
+  const cradle = {} as Cradle;
+  return { defaultCradle: cradle, withScope: vi.fn(<T,>(fn: (scope: Cradle) => Promise<T>) => fn(cradle)) };
+});
+vi.mock("../container/container", () => ({ withScope }));
 import { createLogger } from "../logger";
 import { publicRoute, type Authorize, type RouteContext } from "./apiHandler";
 import { CSRF_HEADER, CSRF_HEADER_VALUE } from "./envelope";
@@ -121,5 +127,31 @@ describe("makeCrudRoute", () => {
     const writeOnly = setup({ read: deny, write: publicRoute });
     expect((await writeOnly.routes.GET(new Request(url()), noParams)).status).toBe(403);
     expect(writeOnly.service.list).not.toHaveBeenCalled();
+  });
+});
+
+describe("makeCrudRoute defaults", () => {
+  it("runs the service in a request scope from the container when runInScope isn't given", async () => {
+    const list = vi.fn(async () => ({ items: [], total: 0 }));
+    const routes = makeCrudRoute({
+      access: { read: publicRoute, write: publicRoute },
+      createSchema,
+      updateSchema,
+      service: (cradle) => {
+        expect(cradle).toBe(defaultCradle);
+        return { list, create: vi.fn(), update: vi.fn(), delete: vi.fn() };
+      },
+      logger: createLogger("silent"),
+    });
+    const response = await routes.GET(new Request(url()), noParams);
+    expect(response.status).toBe(200);
+    expect(withScope).toHaveBeenCalledOnce();
+    expect(list).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a catch-all [...id] segment and falls back to the query string", async () => {
+    const { routes, service } = setup();
+    await routes.DELETE(new Request(url("?id=q"), { method: "DELETE", headers: csrf }), { params: Promise.resolve({ id: ["a", "b"] }) });
+    expect(service.delete).toHaveBeenCalledWith("q");
   });
 });

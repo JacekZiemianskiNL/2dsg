@@ -12,34 +12,44 @@ interface HealthStatus {
   db: "ok";
 }
 
-type DatabaseState = "operational" | "unavailable";
+type CardView =
+  | { kind: "loading" }
+  | { kind: "status"; isOperational: boolean }
+  | { kind: "error"; message: string };
 
-function toDatabaseState(result: ApiResult<HealthStatus>): DatabaseState | null {
-  if (result.ok) return "operational";
+function toView(result: ApiResult<HealthStatus> | null): CardView {
+  if (!result) return { kind: "loading" };
+  if (result.ok) return { kind: "status", isOperational: true };
   // 503 is the health endpoint's way of saying "the database is down", not a failure to load.
-  return result.error.code === "service_unavailable" ? "unavailable" : null;
+  if (result.error.code === "service_unavailable") return { kind: "status", isOperational: false };
+  return { kind: "error", message: result.error.message };
 }
 
 export function SystemStatusCard() {
   const [result, setResult] = useState<ApiResult<HealthStatus> | null>(null);
 
-  const fetchStatus = useCallback((signal?: AbortSignal) => apiCall<HealthStatus>("/api/health", { signal }), []);
+  const load = useCallback((signal?: AbortSignal) => {
+    apiCall<HealthStatus>("/api/health", { signal }).then(setResult, (error: unknown) => {
+      if (signal?.aborted) return;
+      // apiCall only rejects on misuse; hand the error to the nearest error boundary.
+      setResult(() => {
+        throw error;
+      });
+    });
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchStatus(controller.signal).then(setResult, (error: unknown) => {
-      // apiCall only rejects on abort (unmount) or misuse; surface misuse.
-      if (!controller.signal.aborted) throw error;
-    });
+    load(controller.signal);
     return () => controller.abort();
-  }, [fetchStatus]);
+  }, [load]);
 
   const retry = () => {
     setResult(null);
-    void fetchStatus().then(setResult);
+    load();
   };
 
-  const databaseState = result && toDatabaseState(result);
+  const view = toView(result);
 
   return (
     <Card className="max-w-sm">
@@ -48,13 +58,13 @@ export function SystemStatusCard() {
         <CardDescription>Live check of the application&apos;s dependencies.</CardDescription>
       </CardHeader>
       <CardContent>
-        {!result && <LoadingMessage label="Checking…" className="py-0" />}
-        {result && !databaseState && !result.ok && <ErrorMessage message={result.error.message} onRetry={retry} />}
-        {databaseState && (
+        {view.kind === "loading" && <LoadingMessage label="Checking…" className="py-0" />}
+        {view.kind === "error" && <ErrorMessage message={view.message} onRetry={retry} />}
+        {view.kind === "status" && (
           <dl className="flex items-center justify-between text-sm">
             <dt>Database</dt>
-            <dd className={databaseState === "operational" ? "font-medium" : "font-medium text-destructive"}>
-              {databaseState === "operational" ? "Operational" : "Unavailable"}
+            <dd className={view.isOperational ? "font-medium" : "font-medium text-destructive"}>
+              {view.isOperational ? "Operational" : "Unavailable"}
             </dd>
           </dl>
         )}
