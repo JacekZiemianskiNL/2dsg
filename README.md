@@ -16,7 +16,8 @@ DevMentor is a Next.js + TypeScript + React application backed by PostgreSQL. It
 | Dependency injection | [Awilix](https://github.com/jeffijoe/awilix) | One composition root in `core`, per-request scopes |
 | Validation | [Zod 4](https://zod.dev) | Env and (later) shared request schemas |
 | Logging | [pino](https://getpino.io) | Shared logger with secret redaction |
-| Tests | [Vitest 5](https://vitest.dev) + Testing Library | One project per package; jsdom for `ui` |
+| Unit tests | [Vitest 5](https://vitest.dev) + Testing Library | One project per package; 100% coverage gate |
+| Integration tests | [Testcontainers](https://testcontainers.com) + [agent-browser](https://github.com/vercel-labs/agent-browser) | Ephemeral PostgreSQL, built app, headless Chrome |
 | Frontend styling | [Tailwind CSS 4](https://tailwindcss.com) | Public-facing pages |
 | Backend UI | [shadcn/ui](https://ui.shadcn.com) | Admin/back-office pages, built on Tailwind |
 | Package manager | npm workspaces | Node.js >= 22.17 |
@@ -105,7 +106,7 @@ Engineering rules are in [`.ai/docs/engineering-standards.md`](.ai/docs/engineer
 
 ## Getting started
 
-Requirements: Node.js >= 22.17 and a running PostgreSQL server.
+Requirements: Node.js 24 (see `.nvmrc`; agent-browser needs 24 or newer, MikroORM 22.17 or newer), a running PostgreSQL server, and Docker for the integration tests.
 
 1. Install dependencies from the repo root:
 
@@ -141,14 +142,29 @@ Run these from the repo root:
 | `npm run lint` | ESLint for all packages, including the package-boundary rules |
 | `npm run typecheck` | `tsc` for the root tooling and every package |
 | `npm test` / `npm run test:watch` | Vitest: unit and component tests for all packages |
+| `npm run test:coverage` | Unit tests with the 100% coverage gate (HTML report in `coverage/`) |
+| `npm run test:integration` | After `npm run build`: ephemeral PostgreSQL (Testcontainers), the built app, and browser tests with agent-browser |
 | `npm run audit` | `npm audit` gated by `audit-allowlist.json` (fails on new, expired or stale entries) |
-| `npm run validate` | The full gate: lint, typecheck, test, build, audit |
+| `npm run validate` | The full local gate: lint, typecheck, unit tests with coverage, build, audit |
 | `npm run db:migration:create` | Generate a migration from entity changes (`-- --blank` for an empty one) |
 | `npm run db:migrate` | Apply pending migrations |
 
 Run a script in a single package with `-w`, for example `npm run migration:list -w @devmentor/db`. Add dependencies to the package that uses them: `npm install <pkg> -w @devmentor/db`.
 
-Tests are colocated with the code as `src/**/*.test.{ts,tsx}`. `npm run validate` must pass before a change is done.
+Unit tests are colocated with the code as `src/**/*.test.{ts,tsx}`, and every change must keep coverage at 100%. Integration tests live in `test/integration/`. They need Docker for Testcontainers; without Docker, set `INTEGRATION_DATABASE_URL` to an admin connection string, and the suite creates and drops a throwaway database there.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`:
+
+| Job | Runs |
+| --- | --- |
+| Lint & typecheck | `npm run lint`, `npm run typecheck` |
+| Unit tests (100% coverage) | `npm run test:coverage`; the coverage report is uploaded as an artifact |
+| Build | `npm run build` |
+| Integration tests | `agent-browser install --with-deps`, `npm run build`, `npm run test:integration` (Testcontainers on the runner's Docker) |
+| Dependency audit | `npm run audit` |
+
 
 ## Working with AI agents
 

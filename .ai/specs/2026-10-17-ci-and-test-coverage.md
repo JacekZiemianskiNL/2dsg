@@ -86,9 +86,9 @@ Done when the workflow file is valid and runs green on a PR (see phase 5).
 | --- | --- | --- |
 | 1 | Done 2026-10-17 | 150 tests in 29 files; 100% lines/branches/functions/statements over 43 tracked files. `validate` now runs `test:coverage`. See the phase 1 notes below. |
 | 2 | Done 2026-10-17 | 8 integration tests pass locally in 4s through `INTEGRATION_DATABASE_URL`, and throwaway databases and processes are cleaned up. A missing build and a missing Docker runtime both fail with clear errors. Testcontainers itself runs only in CI. |
-| 3 | Not started | |
-| 4 | Not started | |
-| 5 | Not started | |
+| 3 | Done 2026-10-17 | `.github/workflows/ci.yml` (5 jobs) plus a composite setup action (`.nvmrc`, npm cache, `npm ci`). actionlint 1.7.12 reports no problems. Actions are on their current majors (checkout, setup-node and upload-artifact v7). |
+| 4 | Done 2026-10-17 | `AGENTS.md`: a mandatory 100% unit coverage rule with no workarounds, integration tests for user-facing flows, the commands and CI. README: commands, a CI table, stack rows. Node 24 in `engines`/`.nvmrc`. |
+| 5 | Local done, CI pending | Clean `npm ci` (11s), `npm run validate` exit 0 (150 tests, 100% coverage), `npm run test:integration` 8/8 in 4s with no leftovers. The GitHub run waits on the user confirming push and PR. |
 
 ### Phase 1 notes
 

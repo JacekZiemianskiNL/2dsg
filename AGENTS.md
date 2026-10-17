@@ -24,22 +24,31 @@ DevMentor is an npm-workspaces monorepo. These are fixed decisions. Don't introd
 | Backend (admin) pages | shadcn/ui (on Tailwind CSS 4) |
 | Validation | Zod 4 (env, shared request schemas) |
 | Logging | pino (the shared logger from `@devmentor/core`) |
-| Tests | Vitest 5 + Testing Library (jsdom for `ui`) |
+| Unit tests | Vitest 5 + Testing Library + `@vitest/coverage-v8` (100% thresholds) |
+| Integration tests | Vitest + Testcontainers (PostgreSQL 17) + agent-browser (headless Chrome) |
+| CI | GitHub Actions (`.github/workflows/ci.yml`), Node 24 (`.nvmrc`) |
 | Package manager | npm workspaces (keep `package-lock.json`; don't add pnpm/yarn lockfiles) |
-| Runtime | Node.js >= 22.17 (MikroORM 7 requirement) |
+| Runtime | Node.js 24 (`.nvmrc`; agent-browser needs 24 or newer, MikroORM 7 22.17 or newer) |
 
 Use the latest stable versions. Before using a library API, check the installed version's docs/types; don't rely on memory from older majors.
 
 ## Commands
 
 Run from the repo root:
-- **The gate:** `npm run validate` must pass before a change is done. It runs lint, typecheck, test, build and audit:
+- **The gate:** `npm run validate` must pass before a change is done. It runs:
   - `npm run lint`: ESLint, including the package-boundary and code-quality rules.
   - `npm run typecheck`: the root tooling plus every package.
-  - `npm test`: Vitest (`npm run test:watch` while developing).
+  - `npm run test:coverage`: Vitest unit tests with the **100% coverage gate**. Use `npm test` or `npm run test:watch` while developing.
   - `npm run build`: the production build.
   - `npm run audit`: `npm audit` gated by `audit-allowlist.json`. Every entry needs a reason and a `reviewBy` date.
-- **Running app:** for UI or behavior changes, also check it:
+- **Integration tests:** `npm run test:integration`, run after `npm run build`.
+  - It starts an ephemeral PostgreSQL with Testcontainers (needs Docker), runs the migrations and starts the built app. It then tests it over HTTP and in a real browser with agent-browser.
+  - Without Docker (e.g. this sandbox), set `INTEGRATION_DATABASE_URL` to an admin connection string. The suite then creates and drops a throwaway database on that server.
+  - In the sandbox, agent-browser also needs `AGENT_BROWSER_EXECUTABLE_PATH` and `LD_LIBRARY_PATH` set; see `.ai/lessons/2026-10-17-agent-browser-rendered-text.md`.
+- **CI** (`.github/workflows/ci.yml`):
+  - Runs on every pull request and on pushes to `main`, with five jobs: lint and typecheck, unit tests with the coverage gate, build, integration, and audit. All must be green before merging.
+  - When you add or rename a gate script, update the workflow in the same change.
+- **Running app:** for UI or behavior changes, also check it.
   - `npm run dev` starts it; in this sandbox, the pm2 `workspace-preview` process serves it on port 3000.
   - Use `GET /api/health` for the database.
 - **Migrations:** `npm run db:migration:create` and `npm run db:migrate`. See `README.md` for the full list.
@@ -169,11 +178,24 @@ A bespoke form, table or fetch needs a stated reason in the PR. The envelope is 
 - Extract a copy-pasted block with branching logic; three similar lines are fine.
 - A diff traces entirely to its stated purpose: no drive-by renames or formatting passes.
 
-**Tests:**
-- A behavior change ships with a test that fails on the old code.
-- A bug fix ships a regression test. This is required for security-relevant fixes.
-- Race-sensitive flows (booking, reschedule) get an integration test of the concurrent case.
-- Tests are colocated as `src/**/*.test.{ts,tsx}`, run with Vitest.
+**Tests (mandatory):**
+- **100% unit coverage for every change:**
+  - Every new feature, and every change to existing code, must leave unit test coverage at **100% lines, branches, functions and statements**. That covers every file in `packages/*/src` and `scripts/`.
+  - Write the tests in the same change as the code. `npm run test:coverage` enforces this locally and the CI `unit` job blocks the PR otherwise.
+  - A feature isn't done until it's fully covered.
+- **No coverage workarounds:**
+  - Never lower the thresholds in `vitest.config.ts`, and never add `/* v8 ignore */`/`istanbul ignore` comments.
+  - Never widen the coverage `exclude` list to reach 100%. Changing any of these needs a spec approved by the user.
+  - If a branch can't be reached by any test, it's dead code: delete it or restructure it, don't ignore it.
+- **Integration tests for user-facing flows:** every new page, API route or user-visible behavior also gets an integration test in `test/integration/`.
+  - Use real HTTP for APIs and agent-browser for pages.
+  - The tests run against the ephemeral PostgreSQL and the built app.
+  - Assert what a user sees (rendered text, roles, URLs), not implementation details.
+- **Test-first for changes and fixes:**
+  - A behavior change ships with a test that fails on the old code.
+  - A bug fix ships a regression test. This is required for security-relevant fixes.
+  - Race-sensitive flows (booking, reschedule) get an integration test of the concurrent case.
+- **Test layout:** unit tests are colocated as `src/**/*.test.{ts,tsx}`. Test-only helpers live in `src/testing/`, and global stubs in `test/stubs/`. Mock at package boundaries (`vi.mock`), not by adding test-only branches to production code.
 
 Before requesting review, go through the review checklist in section 1 of the standards document.
 
