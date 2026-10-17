@@ -64,4 +64,4 @@ PR: #7
 
 ## Outcome
 
-Done. Specs PR #6 and implementation PR #7 are merged, and the spec has moved to `.ai/specs/implemented/`.
+Done. Spec PR #6 and implementation PR #7 are merged, and the spec has moved to `.ai/specs/implemented/`.
