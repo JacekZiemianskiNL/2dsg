@@ -1,7 +1,7 @@
 # Monorepo migration, phase 2: runtime wiring (database + DI)
 
 - **Date:** 2026-10-17
-- **Related spec:** `.ai/specs/2026-10-17-monorepo-migration.md` (phase 2)
+- **Related spec:** `.ai/specs/implemented/2026-10-17-monorepo-migration.md` (phase 2)
 
 ## Goal
 

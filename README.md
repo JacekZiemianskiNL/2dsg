@@ -2,7 +2,7 @@
 
 DevMentor is a Next.js + TypeScript + React application backed by PostgreSQL. It is organized as an npm-workspaces monorepo.
 
-> **Status:** monorepo migration in progress ([spec](.ai/specs/2026-10-17-monorepo-migration.md)). Phases 1–3 are done: the workspace and packages are in place, the database and DI are wired at runtime (`GET /api/health`), and the UI is set up (`/` public placeholder, `/admin` shadcn dashboard). Phase 4 (close-out and full verification) remains.
+> **Status:** the monorepo migration is complete ([spec](.ai/specs/implemented/2026-10-17-monorepo-migration.md)). There are no domain features yet.
 
 ## Tech stack
 
@@ -90,16 +90,47 @@ packages/app ── container.createScope() ──► scoped: EntityManager (orm
 
 ## Getting started
 
-Requirements: Node.js >= 22.17 and a PostgreSQL database.
+Requirements: Node.js >= 22.17 and a running PostgreSQL server.
 
-```bash
-npm install
-npm run dev     # http://localhost:3000
-npm run lint
-npm run build
-```
+1. Install dependencies from the repo root:
 
-Once the monorepo is in place, run commands in a single package with `-w`, for example `npm run dev -w @devmentor/app`. Add dependencies to the package that uses them: `npm install <pkg> -w @devmentor/db`.
+   ```bash
+   npm install
+   ```
+
+2. Create a database and point `DATABASE_URL` at it. The variables are listed in `.env.example`. For example, on a local PostgreSQL:
+
+   ```bash
+   createuser --pwprompt devmentor
+   createdb --owner devmentor devmentor
+   export DATABASE_URL=postgresql://devmentor:<password>@localhost:5432/devmentor
+   ```
+
+3. Apply migrations and start the app:
+
+   ```bash
+   npm run db:migrate
+   npm run dev       # http://localhost:3000
+   ```
+
+4. Open `/` (public site), `/admin` (back office) and `/api/health` (health check: 200 `{"status":"ok","db":"ok"}` or 503).
+
+### Commands
+
+Run these from the repo root:
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Next.js dev server for `@devmentor/app` (pass flags after `--`, e.g. `npm run dev -- --port 3001`) |
+| `npm run build` / `npm start` | Production build and server (always run with `NODE_ENV=production`) |
+| `npm run lint` | ESLint for all packages, including the package-boundary rules |
+| `npm run typecheck` | `tsc --noEmit` in every package |
+| `npm run db:migration:create` | Generate a migration from entity changes (`-- --blank` for an empty one) |
+| `npm run db:migrate` | Apply pending migrations |
+
+Run a script in a single package with `-w`, for example `npm run migration:list -w @devmentor/db`. Add dependencies to the package that uses them: `npm install <pkg> -w @devmentor/db`.
+
+There is no test framework yet. `lint`, `typecheck` and `build` are the automated checks.
 
 ## Working with AI agents
 

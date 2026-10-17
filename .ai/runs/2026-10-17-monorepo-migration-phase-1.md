@@ -1,7 +1,7 @@
 # Monorepo migration, phase 1: workspace and package split
 
 - **Date:** 2026-10-17
-- **Related spec:** `.ai/specs/2026-10-17-monorepo-migration.md` (phase 1)
+- **Related spec:** `.ai/specs/implemented/2026-10-17-monorepo-migration.md` (phase 1)
 
 ## Goal
 

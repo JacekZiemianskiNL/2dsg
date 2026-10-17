@@ -27,6 +27,15 @@ DevMentor is an npm-workspaces monorepo. These are fixed decisions. Don't introd
 
 Use the latest stable versions. Before using a library API, check the installed version's docs/types; don't rely on memory from older majors.
 
+## Commands
+
+Run from the repo root:
+- `npm run lint`, `npm run typecheck` and `npm run build` must pass before a change is done. There's no test framework yet.
+- For UI or behavior changes, also check the running app:
+  - `npm run dev` starts it; in this sandbox, the pm2 `workspace-preview` process serves it on port 3000.
+  - Use `GET /api/health` for the database.
+- Migrations: `npm run db:migration:create` and `npm run db:migrate`. See `README.md` for the full list.
+
 ## Packages
 
 ```

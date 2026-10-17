@@ -1,7 +1,7 @@
 # Monorepo migration and package scaffolding
 
 - **Date:** 2026-10-17
-- **Status:** Approved 2026-10-17, implementation in progress (see Plan and progress)
+- **Status:** Implemented 2026-10-17 (see Plan and progress)
 - **Related:** `AGENTS.md` (DevMentor architecture rules), `README.md` (Architecture)
 
 ## Context
@@ -186,7 +186,7 @@ Done when every acceptance criterion below is checked.
 | 1 | Done 2026-10-17 | lint, typecheck, build pass; `/` serves the unchanged starter page through the root `npm run dev`; `mikro-orm debug` loads the TS config and connects. See the phase 1 notes below. |
 | 2 | Done 2026-10-17 | `/api/health` 200 with the database up and 503 with it down (refused: immediate; unreachable host: about 2s via the connect timeout); migration create/up/list/down work; connections stable at 1 across 5 HMR reloads. See the phase 2 notes below. |
 | 3 | Done 2026-10-17 | Tailwind 4 + shadcn (base-nova) in `packages/ui`; `/` shows the Tailwind placeholder; `/admin` shows a shadcn Card and Button with a live database status. Verified with headless Chromium screenshots. See the phase 3 notes below. |
-| 4 | Not started | |
+| 4 | Done 2026-10-17 | Docs closed out. Full verification on a clean `npm ci`: lint, typecheck and build pass; production and dev startup work; database-down behavior and migrations checked. See the phase 4 notes below. |
 
 ### Phase 1 notes
 
@@ -241,17 +241,39 @@ Done when every acceptance criterion below is checked.
 - **Dev server cache:** after the root layout and its CSS were replaced, the running dev server kept serving the old root layout (title "Next.js starter"). Restarting it with a clean `.next` fixed this.
 - **Visual check:** done with headless Chromium (Playwright) in the job's tmp folder. The missing system libraries were extracted from Debian `.deb` files with `apt-get download` and `dpkg-deb -x`, with no root needed.
 
+### Phase 4 notes
+
+Full-project verification, run 2026-10-17 from the repo root with the sandbox's `NODE_ENV=development`, after deleting all `node_modules` and `.next`:
+
+| Check | Result |
+| --- | --- |
+| `npm ci` (Node 24.21, npm 11.19) | OK in about 8s; one lockfile, no per-package `node_modules`, `node_modules/next/dist/docs/` present, working tree unchanged |
+| `npm run lint` / `npm run typecheck` / `npm run build` | PASS / PASS / PASS. Routes: `/` static; `/admin` and `/api/health` dynamic. No build warnings |
+| Tests | None. There's no test framework (out of scope, see Non-goals) and no `test` script |
+| Production startup: `npm start -- --port 3100` | `/` 200 "DevMentor"; `/admin` 200 "Admin \| DevMentor", Operational; `/api/health` 200 ok; unknown path 404 |
+| Production with the database unreachable | `/` 200; `/admin` 200 "Unavailable"; `/api/health` 503 error; the server keeps running |
+| Dev startup: the pm2 preview command, i.e. `npm run dev -- --hostname 0.0.0.0 --port 3000` | `next dev` runs in `packages/app`; `/`, `/admin` and `/api/health` all 200 |
+| `npm run db:migration:create` / `npm run db:migrate` | "No changes required" / "Successfully migrated up" |
+| Connections across HMR reloads | Stable at 1 |
+| Headless Chromium screenshots | Same as phase 3 |
+
+Known issue: `npm audit` reports 10 high-severity findings, all from one advisory, GHSA-vfj7-8cjw-p6xm.
+- The vulnerable library is `braces`, through `fast-glob`/`micromatch`, used by awilix, eslint-config-next and shadcn.
+- Every published `braces` version is affected (the latest is 3.0.3), so there's no patch. npm's suggested "fix" is downgrading awilix to 6, eslint-config-next to 14 and shadcn to 1.
+- It's only exploitable with attacker-controlled glob patterns. The app passes no user input to globs and doesn't use Awilix `loadModules`.
+- Re-check when a patched `braces` is released.
+
 ## Acceptance criteria
 
-- [ ] `npm install` at the root produces a single `package-lock.json`, with no lockfiles in packages.
-- [ ] `npm run lint`, `npm run typecheck` and `npm run build` pass from the root.
-- [ ] `npm run dev -- --hostname 0.0.0.0 --port 3000` (the `openmercato.toml` preview command) serves the app.
+- [x] `npm install` at the root produces a single `package-lock.json`, with no lockfiles in packages.
+- [x] `npm run lint`, `npm run typecheck` and `npm run build` pass from the root.
+- [x] `npm run dev -- --hostname 0.0.0.0 --port 3000` (the `openmercato.toml` preview command) serves the app.
 - [x] `/` renders a Tailwind-styled page, and `/admin` renders shadcn `Button` and `Card` from `@devmentor/ui` with correct styles.
 - [x] With PostgreSQL running, `GET /api/health` returns `200 {"status":"ok","db":"ok"}`. With the database stopped, it returns `503` without crashing the server.
 - [x] `npm run db:migration:create` and `npm run db:migrate` run against the local database.
 - [x] Repeated HMR reloads in dev don't grow the number of PostgreSQL connections (check `pg_stat_activity`).
-- [ ] The import rules hold: `core` imports none of next, react or @mikro-orm/*; no package imports from `app`; no relative imports cross package boundaries.
-- [ ] `node_modules/next/dist/docs/` exists at the repo root.
+- [x] The import rules hold: `core` imports none of next, react or @mikro-orm/*; no package imports from `app`; no relative imports cross package boundaries.
+- [x] `node_modules/next/dist/docs/` exists at the repo root.
 
 ## Decisions
 
