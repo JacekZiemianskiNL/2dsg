@@ -83,7 +83,7 @@ packages/app ── container.createScope() ──► scoped: EntityManager (orm
 | Area | Route group | Styling |
 | --- | --- | --- |
 | Frontend (public pages) | `packages/app/src/app/(frontend)/` | Tailwind CSS utilities |
-| Backend (admin pages) | `packages/app/src/app/(backend)/` | shadcn/ui components from `@devmentor/ui` |
+| Backend (admin pages, `/admin`) | `packages/app/src/app/(backend)/admin/` | shadcn/ui components from `@devmentor/ui` |
 
 - shadcn/ui components are generated into `packages/ui` with the shadcn CLI's monorepo support.
 - Both areas share one Tailwind CSS 4 configuration. The app registers `packages/ui` as a Tailwind source.
