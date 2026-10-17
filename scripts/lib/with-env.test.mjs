@@ -10,7 +10,7 @@ import { exitCodeFor, main } from "./with-env.mjs";
 /** A fake `spawn` whose child emits the given event once the listeners are attached. */
 function fakeRun(/** @type {(child: EventEmitter) => void} */ emit) {
   return vi.fn(() => {
-    const child = new EventEmitter();
+    const child = Object.assign(new EventEmitter(), { kill: vi.fn() });
     queueMicrotask(() => emit(child));
     return child;
   });
@@ -41,12 +41,20 @@ describe("main", () => {
       child.emit("exit", 0, null);
     });
 
-    const code = await main({ argv: ["npm", "run", "dev", "--", "--port", "3001"], envFile: "/repo/.env", exists: () => true, loadEnvFile, run: /** @type {never} */ (run) });
+    const code = await main({ argv: ["npm", "run", "dev", "--", "--port", "3001"], envFile: "/repo/.env", exists: () => true, loadEnvFile, run: /** @type {never} */ (run), env: {} });
 
     expect(code).toBe(0);
     expect(calls).toEqual(["load", "run"]);
     expect(loadEnvFile).toHaveBeenCalledWith("/repo/.env");
     expect(run).toHaveBeenCalledWith("npm", ["run", "dev", "--", "--port", "3001"], { stdio: "inherit" });
+  });
+
+  it("runs npm through npm's JS entry point when started by npm", async () => {
+    const run = fakeRun((child) => child.emit("exit", 0, null));
+
+    await main({ argv: ["npm", "test"], exists: () => false, run: /** @type {never} */ (run), env: { npm_execpath: "/npm/bin/npm-cli.js" } });
+
+    expect(run).toHaveBeenCalledWith(process.execPath, ["/npm/bin/npm-cli.js", "test"], { stdio: "inherit" });
   });
 
   it("runs the command without loading anything when the env file is missing", async () => {
@@ -59,10 +67,31 @@ describe("main", () => {
     expect(loadEnvFile).not.toHaveBeenCalled();
   });
 
+  it("forwards SIGINT and SIGTERM to the child until it exits", async () => {
+    const signals = new EventEmitter();
+    /** @type {EventEmitter & { kill: import("vitest").Mock } | undefined} */
+    let started;
+    const run = vi.fn(() => {
+      started = Object.assign(new EventEmitter(), { kill: vi.fn() });
+      return started;
+    });
+
+    const done = main({ argv: ["npm", "run", "dev"], exists: () => false, run: /** @type {never} */ (run), signals });
+    signals.emit("SIGTERM", "SIGTERM");
+    signals.emit("SIGINT", "SIGINT");
+    started?.emit("exit", null, "SIGTERM");
+
+    await expect(done).resolves.toBe(128 + constants.signals.SIGTERM);
+    expect(started?.kill.mock.calls).toEqual([["SIGTERM"], ["SIGINT"]]);
+    expect(signals.listenerCount("SIGTERM") + signals.listenerCount("SIGINT")).toBe(0);
+  });
+
   it("rejects when the command cannot be started", async () => {
     const run = fakeRun((child) => child.emit("error", new Error("spawn nope ENOENT")));
 
-    await expect(main({ argv: ["nope"], exists: () => false, run: /** @type {never} */ (run) })).rejects.toThrow("ENOENT");
+    const signals = new EventEmitter();
+    await expect(main({ argv: ["nope"], exists: () => false, run: /** @type {never} */ (run), signals })).rejects.toThrow("ENOENT");
+    expect(signals.listenerCount("SIGINT")).toBe(0);
   });
 
   it("prints usage and exits 2 without a command", async () => {

@@ -10,6 +10,8 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 
+import { resolveCommand } from "./npm-command.mjs";
+
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const DATABASE_URL_KEY = "DATABASE_URL";
 // 24 random bytes = 192 bits of entropy; base64url needs no escaping inside a connection URL.
@@ -19,11 +21,15 @@ const ENV_FILE_MODE = 0o600;
 const DEFAULT_POSTGRES_PORT = 5432;
 const ADMIN_DATABASE = "postgres";
 const CONNECT_TIMEOUT_MS = 5_000;
-// Plain unquoted PostgreSQL identifiers only, so quoting them into DDL is safe.
-const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
+// Plain unquoted PostgreSQL identifiers only, so quoting them into DDL is safe. At most 63 bytes
+// (NAMEDATALEN - 1): PostgreSQL silently truncates longer names, which would defeat the rerun check.
+const IDENTIFIER = /^[a-z_][a-z0-9_]{0,62}$/;
 // SQLSTATEs that mean "the role or database isn't there yet": provision them instead of failing.
 const PROVISIONABLE_ERRORS = new Set(["3D000", "28000", "28P01"]);
 const REDACTED = "***";
+// Passwords in connection strings, whether in the userinfo or in a `password=` parameter, even if unknown.
+const URL_PASSWORD = /(\w+:\/\/[^:/@\s]*:)[^@\s]+@/g;
+const PASSWORD_PARAMETER = /(password=)[^&\s]+/gi;
 
 /** @typedef {"done" | "skipped" | "ran"} StepStatus */
 /** @typedef {{ name: string, status: StepStatus, detail: string }} StepResult */
@@ -41,6 +47,7 @@ export class SetupError extends Error {}
 export function checkNodeVersion(nodeVersion, nvmrc) {
   const required = Number.parseInt(nvmrc.trim().replace(/^v/, ""), 10);
   const current = Number.parseInt(nodeVersion, 10);
+  if (Number.isNaN(required)) throw new SetupError(`.nvmrc must name a Node.js major version (e.g. 24); found "${nvmrc.trim()}".`);
   if (current < required) {
     throw new SetupError(`Node.js ${required} or newer is required (see .nvmrc); this is ${nodeVersion}.`);
   }
@@ -94,11 +101,23 @@ function assertPostgresUrl(value) {
 }
 
 /**
- * The role, password and database to provision, from the target URL.
+ * The server a URL points at.
+ * @param {string} databaseUrl
+ */
+export function parseServer(databaseUrl) {
+  const url = assertPostgresUrl(databaseUrl);
+  const port = url.port ? Number(url.port) : DEFAULT_POSTGRES_PORT;
+  // Like pg, a `host` parameter (a socket directory, e.g. ?host=/var/run/postgresql) overrides the URL's host.
+  return { url, host: url.searchParams.get("host") || url.hostname, port };
+}
+
+/**
+ * The role, password and database to provision, from the target URL. Only needed when something must be
+ * created, so an existing database with any name keeps working.
  * @param {string} databaseUrl
  */
 export function parseTarget(databaseUrl) {
-  const url = assertPostgresUrl(databaseUrl);
+  const { url, host, port } = parseServer(databaseUrl);
   const role = decodeURIComponent(url.username);
   const database = decodeURIComponent(url.pathname.slice(1));
   for (const [label, name] of [["role", role], ["database", database]]) {
@@ -106,8 +125,7 @@ export function parseTarget(databaseUrl) {
       throw new SetupError(`The ${label} name in DATABASE_URL must match ${IDENTIFIER} (lowercase letters, digits, underscores).`);
     }
   }
-  const port = url.port ? Number(url.port) : DEFAULT_POSTGRES_PORT;
-  return { role, database, password: decodeURIComponent(url.password), host: url.hostname, port };
+  return { role, database, password: decodeURIComponent(url.password), host, port };
 }
 
 /**
@@ -145,7 +163,8 @@ export function collectSecrets(env, databaseUrls) {
  * @param {string[]} secrets
  */
 export function redact(text, secrets) {
-  return secrets.reduce((result, secret) => result.split(secret).join(REDACTED), text);
+  const masked = text.replace(URL_PASSWORD, `$1${REDACTED}@`).replace(PASSWORD_PARAMETER, `$1${REDACTED}`);
+  return secrets.reduce((result, secret) => result.split(secret).join(REDACTED), masked);
 }
 
 /** @param {unknown} error */
@@ -182,18 +201,19 @@ async function withClient(createClient, config, fn) {
  * @returns {Promise<{ status: StepStatus, detail: string }>}
  */
 export async function provisionDatabase({ databaseUrl, env, createClient }) {
-  const target = parseTarget(databaseUrl);
-  const where = `${target.host}:${target.port}`;
+  const server = parseServer(databaseUrl);
+  const where = `${server.host}:${server.port}`;
   const targetConfig = { connectionString: databaseUrl, connectionTimeoutMillis: CONNECT_TIMEOUT_MS };
   const select = () => withClient(createClient, targetConfig, (client) => client.query("select 1"));
   try {
     await select();
-    return { status: "skipped", detail: `role "${target.role}" can already connect to database "${target.database}"` };
+    return { status: "skipped", detail: `DATABASE_URL already connects to ${where}${server.url.pathname}` };
   } catch (error) {
     if (!PROVISIONABLE_ERRORS.has(sqlState(error) ?? "")) {
       throw new SetupError(`Cannot connect to PostgreSQL at ${where}: ${messageOf(error)}. Start PostgreSQL or fix DATABASE_URL.`);
     }
   }
+  const target = parseTarget(databaseUrl);
 
   /** @type {string[]} */
   const created = [];
@@ -229,24 +249,26 @@ export async function provisionDatabase({ databaseUrl, env, createClient }) {
 }
 
 /**
- * Makes sure the env file exists and holds a DATABASE_URL, without overwriting anything already set.
- * @param {{ envFile: string, exampleFile: string, exists: (path: string) => boolean, read: (path: string) => Promise<string>, write: (path: string, content: string, options?: { mode: number, flag: string }) => Promise<void>, generatePassword: () => string }} input
+ * Makes sure the env file exists and holds a DATABASE_URL, without overwriting anything already set. The value
+ * saved is the shell's DATABASE_URL when there is one (so it survives the shell), otherwise a generated one.
+ * @param {{ envFile: string, exampleFile: string, shellDatabaseUrl?: string, exists: (path: string) => boolean, read: (path: string) => Promise<string>, write: (path: string, content: string, options?: { mode: number, flag: string }) => Promise<void>, generatePassword: () => string }} input
  * @returns {Promise<{ status: StepStatus, detail: string }>}
  */
-export async function ensureEnvFile({ envFile, exampleFile, exists, read, write, generatePassword }) {
+export async function ensureEnvFile({ envFile, exampleFile, shellDatabaseUrl, exists, read, write, generatePassword }) {
   const example = await read(exampleFile);
   const template = parseEnv(example)[DATABASE_URL_KEY];
   if (!template) throw new SetupError(`${exampleFile} has no ${DATABASE_URL_KEY} to start from.`);
-  const generated = () => withPassword(template, generatePassword());
+  const value = () => shellDatabaseUrl || withPassword(template, generatePassword());
+  const origin = shellDatabaseUrl ? `${DATABASE_URL_KEY} from the shell` : "a generated database password";
 
   if (!exists(envFile)) {
-    await write(envFile, upsertEnvLine(example, DATABASE_URL_KEY, generated()), { mode: ENV_FILE_MODE, flag: "wx" });
-    return { status: "done", detail: `created ${envFile} with a generated database password` };
+    await write(envFile, upsertEnvLine(example, DATABASE_URL_KEY, value()), { mode: ENV_FILE_MODE, flag: "wx" });
+    return { status: "done", detail: `created ${envFile} with ${origin}` };
   }
   const content = await read(envFile);
   if (parseEnv(content)[DATABASE_URL_KEY]) return { status: "skipped", detail: `${envFile} already sets ${DATABASE_URL_KEY}` };
-  await write(envFile, upsertEnvLine(content, DATABASE_URL_KEY, generated()));
-  return { status: "done", detail: `added ${DATABASE_URL_KEY} with a generated password to ${envFile}` };
+  await write(envFile, upsertEnvLine(content, DATABASE_URL_KEY, value()));
+  return { status: "done", detail: `added ${origin} to ${envFile}` };
 }
 
 /**
@@ -267,7 +289,7 @@ export function resolveDatabaseUrl(env, envContent) {
 export function commandRunner({ spawnProcess = spawn, stdout = process.stdout, stderr = process.stderr, secrets }) {
   return (command, args, options) =>
     new Promise((resolve, reject) => {
-      const child = spawnProcess(command, args, { ...options, stdio: ["inherit", "pipe", "pipe"] });
+      const child = spawnProcess(...resolveCommand(command, args, options.env), { ...options, stdio: ["inherit", "pipe", "pipe"] });
       for (const [input, output] of /** @type {const} */ ([
         [child.stdout, stdout],
         [child.stderr, stderr],
@@ -336,7 +358,9 @@ export async function runSetup(options) {
     await runNpm(runCommand, "npm install", ["install"], { cwd: repoRoot, env });
     return { status: "ran", detail: "npm install is up to date" };
   });
-  await step("Environment file", () => ensureEnvFile({ ...options, exampleFile: join(repoRoot, ".env.example") }));
+  await step("Environment file", () =>
+    ensureEnvFile({ ...options, exampleFile: join(repoRoot, ".env.example"), shellDatabaseUrl: env[DATABASE_URL_KEY] }),
+  );
 
   const { databaseUrl, source } = resolveDatabaseUrl(env, await options.read(envFile));
   await step("Database", async () => {
@@ -417,11 +441,13 @@ export async function main(deps = {}) {
   } = deps;
   // The env file's URL is tracked because setup may create it partway through the run; its password must be
   // hidden from every later line of output.
-  let envFileUrl = exists(envFile) ? parseEnv(await read(envFile))[DATABASE_URL_KEY] : undefined;
+  /** @type {string | undefined} */
+  let envFileUrl;
   const secrets = () => collectSecrets(env, [env[DATABASE_URL_KEY], envFileUrl]);
   const { runCommand = commandRunner({ secrets }) } = deps;
 
   try {
+    if (exists(envFile)) envFileUrl = parseEnv(await read(envFile).catch((cause) => Promise.reject(new SetupError(`Environment file: ${messageOf(cause)}`))))[DATABASE_URL_KEY];
     await runSetup({
       repoRoot,
       envFile,

@@ -72,6 +72,10 @@ describe("checkNodeVersion", () => {
     expect(checkNodeVersion("25.0.0", "v24")).toBe("Node.js 25.0.0");
   });
 
+  it("refuses a .nvmrc without a major version instead of passing silently", () => {
+    expect(() => checkNodeVersion("24.21.0", "lts/*\n")).toThrow('.nvmrc must name a Node.js major version (e.g. 24); found "lts/*".');
+  });
+
   it("rejects an older major with the required version", () => {
     expect(() => checkNodeVersion("22.17.0", "24\n")).toThrow(new SetupError("Node.js 24 or newer is required (see .nvmrc); this is 22.17.0."));
   });
@@ -114,6 +118,15 @@ describe("parseTarget", () => {
     expect(() => parseTarget("mysql://a:b@localhost/c")).toThrow("must be a postgres:// or postgresql:// URL");
   });
 
+  it("lets a host parameter (a socket directory) override the URL's host, like pg does", () => {
+    expect(parseTarget("postgresql://app:x@localhost/app?host=/var/run/postgresql").host).toBe("/var/run/postgresql");
+  });
+
+  it("rejects names PostgreSQL would truncate (over 63 characters)", () => {
+    expect(parseTarget(`postgresql://${"a".repeat(63)}:x@localhost/db`).role).toHaveLength(63);
+    expect(() => parseTarget(`postgresql://${"a".repeat(64)}:x@localhost/db`)).toThrow("The role name");
+  });
+
   it("rejects role and database names that aren't plain identifiers", () => {
     expect(() => parseTarget('postgresql://Bad"Role:x@localhost/db')).toThrow("The role name");
     expect(() => parseTarget("postgresql://role:x@localhost/my-db")).toThrow("The database name");
@@ -148,6 +161,13 @@ describe("collectSecrets and redact", () => {
   it("masks every occurrence", () => {
     expect(redact("a s3cret b s3cret", ["s3cret"])).toBe("a *** b ***");
   });
+
+  it("masks connection-string passwords it wasn't told about", () => {
+    expect(redact("at postgresql://u:unknown@h:5432/db and postgresql:///postgres?host=/run&password=other", [])).toBe(
+      "at postgresql://u:***@h:5432/db and postgresql:///postgres?host=/run&password=***",
+    );
+    expect(redact("postgresql://u@h/db has no password", [])).toBe("postgresql://u@h/db has no password");
+  });
 });
 
 describe("provisionDatabase", () => {
@@ -155,10 +175,20 @@ describe("provisionDatabase", () => {
     const server = fakeServer();
     await expect(provisionDatabase({ databaseUrl: TARGET, env: {}, createClient: server.createClient })).resolves.toEqual({
       status: "skipped",
-      detail: 'role "devmentor" can already connect to database "devmentor"',
+      detail: "DATABASE_URL already connects to db.local:6543/devmentor",
     });
     expect(server.ended.count).toBe(1);
     expect(server.configs[0]).toEqual({ connectionString: TARGET, connectionTimeoutMillis: 5000 });
+  });
+
+  it("accepts any existing database name, validating names only when it must create them", async () => {
+    const hyphenated = "postgresql://postgres:pw@localhost:5432/open-mercato";
+    const reachable = fakeServer({ target: hyphenated });
+    await expect(provisionDatabase({ databaseUrl: hyphenated, env: {}, createClient: reachable.createClient })).resolves.toMatchObject({ status: "skipped" });
+
+    const missing = fakeServer({ target: hyphenated, targetErrors: [pgError("3D000")] });
+    await expect(provisionDatabase({ databaseUrl: hyphenated, env: {}, createClient: missing.createClient })).rejects.toThrow("The database name");
+    expect(missing.ddl).toEqual([]);
   });
 
   it("creates a missing role and database, then verifies the connection", async () => {
@@ -234,6 +264,17 @@ describe("ensureEnvFile", () => {
     );
   });
 
+  it("saves the shell's DATABASE_URL instead of a generated one, so it outlives the shell", async () => {
+    const deps = io({ "/r/.env.example": EXAMPLE });
+    const result = await ensureEnvFile({ ...deps, envFile: "/r/.env", exampleFile: "/r/.env.example", shellDatabaseUrl: TARGET });
+    expect(result.detail).toBe("created /r/.env with DATABASE_URL from the shell");
+    expect(deps.write.mock.calls[0]?.[1]).toContain(`DATABASE_URL=${TARGET}\n`);
+
+    const existing = io({ "/r/.env.example": EXAMPLE, "/r/.env": "LOG_LEVEL=debug\n" });
+    const added = await ensureEnvFile({ ...existing, envFile: "/r/.env", exampleFile: "/r/.env.example", shellDatabaseUrl: TARGET });
+    expect(added.detail).toBe("added DATABASE_URL from the shell to /r/.env");
+  });
+
   it("never overwrites an env file that already sets DATABASE_URL", async () => {
     const deps = io({ "/r/.env.example": EXAMPLE, "/r/.env": "DATABASE_URL=postgresql://mine\n" });
     await expect(ensureEnvFile({ ...deps, envFile: "/r/.env", exampleFile: "/r/.env.example" })).resolves.toEqual({
@@ -246,7 +287,7 @@ describe("ensureEnvFile", () => {
   it("adds a DATABASE_URL to an existing env file that lacks one, keeping its other lines", async () => {
     const deps = io({ "/r/.env.example": EXAMPLE, "/r/.env": "LOG_LEVEL=debug\nDATABASE_URL=\n" });
     const result = await ensureEnvFile({ ...deps, envFile: "/r/.env", exampleFile: "/r/.env.example" });
-    expect(result.status).toBe("done");
+    expect(result).toEqual({ status: "done", detail: "added a generated database password to /r/.env" });
     expect(deps.write).toHaveBeenCalledWith("/r/.env", "LOG_LEVEL=debug\nDATABASE_URL=postgresql://devmentor:generated@localhost:5432/devmentor\n");
   });
 
@@ -290,6 +331,16 @@ describe("commandRunner", () => {
     expect(spawnProcess).toHaveBeenCalledWith("npm", ["run", "db:migrate"], { cwd: "/r", env: { A: "1" }, stdio: ["inherit", "pipe", "pipe"] });
     expect(stdout.read().toString()).toBe("connecting to postgresql://u:***@h/db\nok\n");
     expect(stderr.read().toString()).toBe("warn ***\n");
+  });
+
+  it("runs npm through npm's JS entry point when setup itself was started by npm", async () => {
+    const child = fakeChild();
+    const spawnProcess = vi.fn(() => child);
+    const run = commandRunner({ spawnProcess: /** @type {never} */ (spawnProcess), secrets: () => [] });
+    const done = run("npm", ["install"], { cwd: "/r", env: { npm_execpath: "/npm/cli.js" } });
+    child.emit("close", 0);
+    await done;
+    expect(spawnProcess).toHaveBeenCalledWith(process.execPath, ["/npm/cli.js", "install"], expect.objectContaining({ cwd: "/r" }));
   });
 
   it("reports a failure when the child closes without an exit code", async () => {
@@ -431,6 +482,15 @@ describe("main", () => {
     await expect(main(deps)).resolves.toBe(1);
 
     expect(error).toHaveBeenCalledWith("Setup failed at Migrations: npm run db:migrate failed with exit code 2; see the output above.");
+  });
+
+  it("reports an unreadable env file as a setup failure", async () => {
+    const { deps, error } = setupDeps({ files: { "/r/.env": "" } });
+    const read = async (/** @type {string} */ path) => (path === "/r/.env" ? Promise.reject(new Error("EACCES: permission denied")) : deps.read(path));
+
+    await expect(main({ ...deps, read })).resolves.toBe(1);
+
+    expect(error).toHaveBeenCalledWith("Setup failed at Environment file: EACCES: permission denied");
   });
 
   it("refuses an older Node.js before changing anything", async () => {

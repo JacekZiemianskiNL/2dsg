@@ -120,7 +120,7 @@ It does the manual steps below in one go:
 
 1. Checks the Node.js version against `.nvmrc`.
 2. Runs `npm install`.
-3. Creates a git-ignored root `.env` from `.env.example`, with a generated database password (file mode `0600`).
+3. Creates a git-ignored root `.env` (file mode `0600`) from `.env.example`. Its `DATABASE_URL` is the one exported in your shell, or the example's URL with a generated password.
 4. Creates the PostgreSQL role and database named in `DATABASE_URL`.
 5. Applies the migrations.
 

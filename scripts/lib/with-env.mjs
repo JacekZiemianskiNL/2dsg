@@ -6,10 +6,14 @@ import { existsSync } from "node:fs";
 import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { resolveCommand } from "./npm-command.mjs";
+
 const ROOT_ENV_FILE = fileURLToPath(new URL("../../.env", import.meta.url));
 // POSIX shells report a child killed by a signal as 128 + the signal number.
 const SIGNAL_EXIT_BASE = 128;
 const USAGE_EXIT_CODE = 2;
+// Forwarded so a wrapper stopped on its own (not via the terminal's process group) doesn't orphan the child.
+const FORWARDED_SIGNALS = /** @type {const} */ (["SIGINT", "SIGTERM"]);
 
 /**
  * @param {number | null} code
@@ -22,7 +26,7 @@ export function exitCodeFor(code, signal) {
 
 /**
  * Loads the env file and runs the command, resolving with its exit code.
- * @param {{ argv?: string[], envFile?: string, exists?: (path: string) => boolean, loadEnvFile?: (path: string) => void, run?: typeof spawn, error?: (message: string) => void }} [deps]
+ * @param {{ argv?: string[], envFile?: string, exists?: (path: string) => boolean, loadEnvFile?: (path: string) => void, run?: typeof spawn, signals?: NodeJS.EventEmitter, env?: NodeJS.ProcessEnv, error?: (message: string) => void }} [deps]
  * @returns {Promise<number>}
  */
 export function main(deps = {}) {
@@ -32,6 +36,8 @@ export function main(deps = {}) {
     exists = existsSync,
     loadEnvFile = (path) => process.loadEnvFile(path),
     run = spawn,
+    signals = process,
+    env = process.env,
     error = console.error,
   } = deps;
   const [command, ...args] = argv;
@@ -41,8 +47,19 @@ export function main(deps = {}) {
   }
   if (exists(envFile)) loadEnvFile(envFile);
   return new Promise((resolve, reject) => {
-    const child = run(command, args, { stdio: "inherit" });
-    child.on("error", reject);
-    child.on("exit", (code, signal) => resolve(exitCodeFor(code, signal)));
+    const child = run(...resolveCommand(command, args, env), { stdio: "inherit" });
+    const forward = (/** @type {NodeJS.Signals} */ signal) => child.kill(signal);
+    for (const signal of FORWARDED_SIGNALS) signals.on(signal, forward);
+    const stopForwarding = () => {
+      for (const signal of FORWARDED_SIGNALS) signals.off(signal, forward);
+    };
+    child.on("error", (error) => {
+      stopForwarding();
+      reject(error);
+    });
+    child.on("exit", (code, signal) => {
+      stopForwarding();
+      resolve(exitCodeFor(code, signal));
+    });
   });
 }
