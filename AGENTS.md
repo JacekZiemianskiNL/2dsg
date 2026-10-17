@@ -47,6 +47,10 @@ Run from the repo root:
   - In the sandbox, agent-browser also needs `AGENT_BROWSER_EXECUTABLE_PATH` and `LD_LIBRARY_PATH` set; see `.ai/lessons/2026-10-17-agent-browser-rendered-text.md`.
 - **CI** (`.github/workflows/ci.yml`):
   - Runs on every pull request and on pushes to `main`, with five jobs: lint and typecheck, unit tests with the coverage gate, build, integration, and audit. All must be green before merging.
+  - `main` is branch-protected (also for admins):
+    - All five checks are required, and the branch must be up to date with `main`.
+    - Changes land only through a PR; never push directly to `main`, and never force-push or delete it.
+    - A new or renamed CI job must also be added to the required checks.
   - When you add or rename a gate script, update the workflow in the same change.
 - **Running app:** for UI or behavior changes, also check it.
   - `npm run dev` starts it; in this sandbox, the pm2 `workspace-preview` process serves it on port 3000.

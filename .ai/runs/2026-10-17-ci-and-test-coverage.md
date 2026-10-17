@@ -51,7 +51,11 @@ Done. The integration path was verified on GitHub.
 ## Follow-ups
 
 - PR #1 is a draft: review it, mark it ready and merge when satisfied.
-- Once CI is green, consider making the five jobs required status checks in GitHub branch protection for `main`.
+- **Done 2026-10-17, branch protection on `main`:**
+  - Protection isn't available for private repos on GitHub Free (403), so the user had the repository made public.
+  - The five jobs are required checks, limited to GitHub Actions (app 15368), with the branch kept up to date (strict). PRs are required (0 approvals), admins aren't exempt, and force-pushes and deletion are blocked.
+  - Verified with throwaway PR #2: a deliberately failing unit test left the other four jobs green, the PR was `BLOCKED` and `gh pr merge` was refused. PR #2 was then closed and its branch deleted.
+  - My first probe was wrong: it branched from `main`, which has no workflow, so no checks would have run. I rebased it onto `feat/ci-and-coverage`.
 
 ## Lessons added
 
