@@ -24,6 +24,7 @@ To set up DevMentor today, a new developer follows the four manual steps in READ
    - A new `scripts/with-env.mjs` calls `process.loadEnvFile(".env")` when the file exists and then spawns the rest of its argv with the inherited environment.
    - `loadEnvFile` never overrides a variable that's already set, so a value exported in the shell still wins. That matches Node's `--env-file` semantics and keeps the manual steps working.
    - These root scripts are wrapped: `db:migrate`, `db:migration:create` and `dev`. For example, `"db:migrate": "node scripts/with-env.mjs npm run migration:up -w @devmentor/db"` and `"dev": "node scripts/with-env.mjs npm run dev -w @devmentor/app --"`.
+   - When npm started the script, `npm` is run as `node $npm_execpath …`, because a bare `npm` can't be spawned on Windows (`npm.cmd` needs a shell). SIGINT and SIGTERM are forwarded to the child.
    - Arguments after `npm run <script> --` are appended to the wrapped command unchanged, so `npm run dev -- --port 3001` and `npm run db:migration:create -- --blank` keep working.
    - `start`, `build` and the test scripts aren't wrapped. A production-style `start` must not pick up a stray developer `.env`, the app must build without a database, and the tests must not depend on a developer's `.env`.
    - Precedence for `dev`: shell, then root `.env` (injected into the process env), then `packages/app/.env*`. Next.js never overrides a variable that's already set. README documents this.
@@ -50,7 +51,7 @@ Each step reports `done`, `skipped (already done)` or a failure.
 | 6 | `npm run db:migrate`, with the resolved `DATABASE_URL` in the child env | never; it always runs and reports `ran`. MikroORM's `migration:up` already does nothing when no migration is pending. | npm exit code is passed through |
 | 7 | Summary and next steps (`npm run dev`, the URLs from README step 4) | | |
 
-- **Step 4 resolution order** mirrors runtime precedence: the shell, then `.env`. Step 3 has already put a generated value in `.env` when there was none. It generates the value right away instead of copying the template as-is, so `.env.example`'s sample password is never persisted (an implementation finding from PR #7). A shell `DATABASE_URL` is never written to `.env`.
+- **Step 4 resolution order** mirrors runtime precedence: the shell, then `.env`. Step 3 has already put a generated value in `.env` when there was none. It generates the value right away instead of copying the template as-is, so `.env.example`'s sample password is never persisted (an implementation finding from PR #7). When the shell provides `DATABASE_URL`, that value is what step 3 writes, so it outlives the shell and `.env` never disagrees with the database setup provisioned (a review finding on PR #7).
 - **Step statuses:** `done` (state changed), `skipped` (already in place) and `ran` (an always-run step: `npm install`, migrations, the version check). On a rerun, no step reports `done`. This is the definition of idempotent used in the tests.
 - **Reading `.env`** uses `util.parseEnv` (Node ≥ 21.7), the same parser behind `--env-file`/`loadEnvFile`, so setup reads exactly what the runtime reads.
 - **A generated value** is the `.env.example` URL with the password replaced by `randomBytes(24).toString("base64url")`.
@@ -60,10 +61,10 @@ Each step reports `done`, `skipped (already done)` or a failure.
 - **Step 5 admin connection:** `SETUP_ADMIN_DATABASE_URL` when set. Otherwise it's the target host and port, database `postgres`, with user and password from the standard libpq variables `pg` already honours (`PGUSER`, falling back to the OS user, and `PGPASSWORD`).
   - Known limitation: `pg` connects over TCP. On a stock Debian or Homebrew install where only peer auth over the socket is set up, the default can fail. The error then suggests `SETUP_ADMIN_DATABASE_URL=postgresql:///postgres?host=/var/run/postgresql` (a socket path) or `PGUSER`/`PGPASSWORD`.
   - The step creates the role (`LOGIN`, password from the target URL) only if `pg_roles` doesn't already have it, and creates the database (`OWNER` the role) only if `pg_database` doesn't already have it.
-  - Identifiers are double-quoted after a `^[a-z_][a-z0-9_]*$` check of the role and database names. The password is set with the client's literal escaping. No SQL is built from unchecked input.
+  - Identifiers are double-quoted after a `^[a-z_][a-z0-9_]{0,62}$` check (63 bytes, the most PostgreSQL keeps without truncating) of the role and database names. The check runs only when something must be created, so an existing database with any name, such as `open-mercato`, is accepted. The password is set with the client's literal escaping. No SQL is built from unchecked input.
 - **Bootstrap:** `scripts/setup.mjs` and the code before step 2 import only `node:` built-ins, because `node_modules` may not exist yet. `pg` is loaded with a dynamic `import("pg")` after step 2.
 - **Secrets:** the password and any URL containing it are never printed.
-  - Every log line and error message, including `pg` errors and captured child-process stderr, passes through `redact()`. It masks the password of the target and admin URLs, both as a bare password and inside a URL.
+  - Every log line and error message, including `pg` errors and captured child-process stderr, passes through `redact()`. It masks any connection-string password by pattern (userinfo or `password=`), plus the known passwords (target, admin, `PGPASSWORD`) wherever they appear. Masking a short password can also hide a matching role name; that's accepted, because leaking a password is worse.
   - Child processes run with piped output that's redacted line by line before it's forwarded.
   - `.env` is created with mode `0600`.
 
