@@ -1,6 +1,8 @@
 export interface AppConfig {
   databaseUrl: string;
   databasePool: { min: number; max: number };
+  /** How long to wait for a pooled connection before failing, in ms. */
+  databaseConnectTimeoutMs: number;
 }
 
 function readInt(name: string, fallback: number): number {
@@ -25,5 +27,6 @@ export function loadConfig(): AppConfig {
       min: readInt("DATABASE_POOL_MIN", 2),
       max: readInt("DATABASE_POOL_MAX", 10),
     },
+    databaseConnectTimeoutMs: readInt("DATABASE_CONNECT_TIMEOUT_MS", 5000),
   };
 }

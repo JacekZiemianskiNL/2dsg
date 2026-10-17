@@ -184,7 +184,7 @@ Done when every acceptance criterion below is checked.
 | Phase | Status | Notes |
 | --- | --- | --- |
 | 1 | Done 2026-10-17 | lint, typecheck, build pass; `/` serves the unchanged starter page through the root `npm run dev`; `mikro-orm debug` loads the TS config and connects. See the phase 1 notes below. |
-| 2 | Not started | |
+| 2 | Done 2026-10-17 | `/api/health` 200 with the database up and 503 with it down (refused: immediate; unreachable host: about 2s via the connect timeout); migration create/up/list/down work; connections stable at 1 across 5 HMR reloads. See the phase 2 notes below. |
 | 3 | Not started | |
 | 4 | Not started | |
 
@@ -202,15 +202,31 @@ Done when every acceptance criterion below is checked.
 - **Composition root:** `packages/app/src/server/container.ts` and `scope.ts` exist and typecheck, but nothing calls them until `/api/health` (phase 2).
 - **Next.js packages:** `serverExternalPackages` wasn't needed so far, because nothing in the build imports `@devmentor/db` yet. Re-check this in phase 2.
 
+### Phase 2 notes
+
+- **Health route:** `packages/app/src/app/api/health/route.ts`.
+  - Calls `await connection()`, runs `em.execute("select 1")` inside `withScope`, and sends `Cache-Control: no-store`.
+  - Responses are only `{"status":"ok","db":"ok"}` or `{"status":"error","db":"error"}`. The cause is logged on the server, never returned.
+- **Connect timeout:** `pg` waits forever for a connection by default, which would make the health check hang instead of returning 503 when the database is down.
+  - Added `DATABASE_CONNECT_TIMEOUT_MS` (default 5000) to the core config.
+  - It reaches the `pg` Pool through MikroORM `driverOptions.connectionTimeoutMillis`.
+- **Snapshot name:** `migrations.snapshotName` is set to `.snapshot-devmentor`. By default the schema snapshot is named after the database (here `.snapshot-open-mercato.json`), which differs per machine.
+  - No snapshot or migration is committed yet. The probes were a blank migration, applied and then reverted, and with no entities there's nothing to snapshot.
+  - The `mikro_orm_migrations` tracking table now exists in the local database (empty).
+- **`serverExternalPackages`:** still not needed. `next build` bundles `@devmentor/db` and MikroORM 7, and `next start` serves `/api/health` correctly.
+- **How it was tested:**
+  - Database down: separate `next start` instances on spare ports, with `DATABASE_URL` pointing at a refused port and at a non-routable host. The shared PostgreSQL was never stopped.
+  - HMR: appended comments to `src/server/container.ts` five times while the dev server ran, and counted `pg_stat_activity` connections after each health call.
+
 ## Acceptance criteria
 
 - [ ] `npm install` at the root produces a single `package-lock.json`, with no lockfiles in packages.
 - [ ] `npm run lint`, `npm run typecheck` and `npm run build` pass from the root.
 - [ ] `npm run dev -- --hostname 0.0.0.0 --port 3000` (the `openmercato.toml` preview command) serves the app.
 - [ ] `/` renders a Tailwind-styled page, and `/admin` renders shadcn `Button` and `Card` from `@devmentor/ui` with correct styles.
-- [ ] With PostgreSQL running, `GET /api/health` returns `200 {"status":"ok","db":"ok"}`. With the database stopped, it returns `503` without crashing the server.
-- [ ] `npm run db:migration:create` and `npm run db:migrate` run against the local database.
-- [ ] Repeated HMR reloads in dev don't grow the number of PostgreSQL connections (check `pg_stat_activity`).
+- [x] With PostgreSQL running, `GET /api/health` returns `200 {"status":"ok","db":"ok"}`. With the database stopped, it returns `503` without crashing the server.
+- [x] `npm run db:migration:create` and `npm run db:migrate` run against the local database.
+- [x] Repeated HMR reloads in dev don't grow the number of PostgreSQL connections (check `pg_stat_activity`).
 - [ ] The import rules hold: `core` imports none of next, react or @mikro-orm/*; no package imports from `app`; no relative imports cross package boundaries.
 - [ ] `node_modules/next/dist/docs/` exists at the repo root.
 
