@@ -108,13 +108,37 @@ Engineering rules are in [`.ai/docs/engineering-standards.md`](.ai/docs/engineer
 
 Requirements: Node.js 24 (see `.nvmrc`; agent-browser needs 24 or newer, MikroORM 22.17 or newer), a running PostgreSQL server, and Docker for the integration tests.
 
+### Quick start: `npm run setup`
+
+From the repo root, run:
+
+```bash
+npm run setup
+```
+
+It does the manual steps below in one go:
+
+1. Checks the Node.js version against `.nvmrc`.
+2. Runs `npm install`.
+3. Creates a git-ignored root `.env` from `.env.example`, with a generated database password (file mode `0600`).
+4. Creates the PostgreSQL role and database named in `DATABASE_URL`.
+5. Applies the migrations.
+
+Then start the app with `npm run dev` and open the URLs from step 4 below.
+
+- **Rerunning is safe.** Steps that are already done are reported as skipped. An existing `.env` is never overwritten, and an existing role's password is never changed.
+- **Admin access:** creating the role and database needs a PostgreSQL superuser. By default, setup connects to the `postgres` database on the `DATABASE_URL` host as `PGUSER` (or your OS user) with `PGPASSWORD`. Otherwise, set `SETUP_ADMIN_DATABASE_URL`, e.g. `postgresql://postgres:<password>@localhost:5432/postgres`, or a socket such as `postgresql:///postgres?host=/var/run/postgresql`. It isn't needed once the database exists.
+- **Where settings come from:** `npm run dev`, `npm run db:migrate` and `npm run db:migration:create` load the root `.env`. A variable exported in your shell takes precedence over `.env`, and both take precedence over `packages/app/.env*`. `npm start`, `npm run build` and the tests don't read the root `.env`.
+
+### Manual setup
+
 1. Install dependencies from the repo root:
 
    ```bash
    npm install
    ```
 
-2. Create a database and point `DATABASE_URL` at it. The variables are listed in `.env.example`. For example, on a local PostgreSQL:
+2. Create a database and point `DATABASE_URL` at it, either exported in your shell or in a root `.env` (start from `.env.example`). For example, on a local PostgreSQL:
 
    ```bash
    createuser --pwprompt devmentor
@@ -137,6 +161,7 @@ Run these from the repo root:
 
 | Command | What it does |
 | --- | --- |
+| `npm run setup` | Idempotent local setup: install, `.env`, PostgreSQL role and database, migrations (see Quick start) |
 | `npm run dev` | Next.js dev server for `@devmentor/app` (pass flags after `--`, e.g. `npm run dev -- --port 3001`) |
 | `npm run build` / `npm start` | Production build and server (always run with `NODE_ENV=production`) |
 | `npm run lint` | ESLint for all packages, including the package-boundary rules |
@@ -147,7 +172,7 @@ Run these from the repo root:
 | `npm run audit` | `npm audit` gated by `audit-allowlist.json` (fails on new, expired or stale entries) |
 | `npm run validate` | The full local gate: lint, typecheck, unit tests with coverage, build, audit |
 | `npm run db:migration:create` | Generate a migration from entity changes (`-- --blank` for an empty one) |
-| `npm run db:migrate` | Apply pending migrations |
+| `npm run db:migrate` | Apply pending migrations (loads the root `.env`) |
 
 Run a script in a single package with `-w`, for example `npm run migration:list -w @devmentor/db`. Add dependencies to the package that uses them: `npm install <pkg> -w @devmentor/db`.
 
