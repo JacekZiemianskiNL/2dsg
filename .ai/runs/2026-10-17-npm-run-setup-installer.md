@@ -1,7 +1,7 @@
 # Run: idempotent `npm run setup` installer
 
 - **Goal:** implement `npm run setup`, which runs README's "Getting started" steps idempotently, and update README while keeping the manual steps.
-- **Source doc:** .ai/specs/2026-10-17-npm-run-setup-installer.md (spec PR #6; the spec merges through that PR, not this one)
+- **Source doc:** .ai/specs/implemented/2026-10-17-npm-run-setup-installer.md (spec PR #6; the spec merges through that PR, not this one)
 - **Issue:** #5
 - **Engine:** om-auto-create-pr (steps: 6, --loop: no)
 
@@ -64,4 +64,4 @@ PR: #7
 
 ## Outcome
 
-Done. Follow-up: after spec PR #6 merges, move the spec to `.ai/specs/implemented/`.
+Done. Specs PR #6 and implementation PR #7 are merged, and the spec has moved to `.ai/specs/implemented/`.

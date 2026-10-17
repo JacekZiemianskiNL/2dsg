@@ -1,7 +1,7 @@
 # Idempotent `npm run setup` installer for local development
 
 - **Date:** 2026-10-17
-- **Status:** Proposed
+- **Status:** Implemented 2026-10-17 (PR #7)
 - **Issue:** #5
 
 ## 📝 TLDR
