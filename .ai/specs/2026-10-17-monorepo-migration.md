@@ -113,12 +113,12 @@ packages/db/
 
 ```
 packages/ui/
-├── package.json     exports: "./components/*", "./lib/*", "./styles.css"
+├── package.json     exports: "./globals.css", "./components/*", "./lib/*", "./hooks/*"
 ├── components.json  shadcn config for the ui package (Tailwind v4: empty tailwind.config)
 └── src/
-    ├── components/  shadcn components (initially: button, card)
-    ├── lib/utils.ts cn() helper
-    └── styles.css   shadcn theme tokens, imported by the app's globals.css
+    ├── components/        shadcn components (initially: button, card)
+    ├── lib/utils.ts       cn() (re-exported from shadcn's `cn` package)
+    └── styles/globals.css shared stylesheet: Tailwind, shadcn theme tokens, @source for ui and app
 ```
 
 - Initialize shadcn in monorepo mode: one `components.json` in `packages/app` and one in `packages/ui`, with matching `style`, `iconLibrary` and `baseColor`, and aliases resolving to `@devmentor/ui/...`. Run `shadcn add` from `packages/app` so base components land in `packages/ui`.
@@ -185,7 +185,7 @@ Done when every acceptance criterion below is checked.
 | --- | --- | --- |
 | 1 | Done 2026-10-17 | lint, typecheck, build pass; `/` serves the unchanged starter page through the root `npm run dev`; `mikro-orm debug` loads the TS config and connects. See the phase 1 notes below. |
 | 2 | Done 2026-10-17 | `/api/health` 200 with the database up and 503 with it down (refused: immediate; unreachable host: about 2s via the connect timeout); migration create/up/list/down work; connections stable at 1 across 5 HMR reloads. See the phase 2 notes below. |
-| 3 | Not started | |
+| 3 | Done 2026-10-17 | Tailwind 4 + shadcn (base-nova) in `packages/ui`; `/` shows the Tailwind placeholder; `/admin` shows a shadcn Card and Button with a live database status. Verified with headless Chromium screenshots. See the phase 3 notes below. |
 | 4 | Not started | |
 
 ### Phase 1 notes
@@ -218,12 +218,35 @@ Done when every acceptance criterion below is checked.
   - Database down: separate `next start` instances on spare ports, with `DATABASE_URL` pointing at a refused port and at a non-routable host. The shared PostgreSQL was never stopped.
   - HMR: appended comments to `src/server/container.ts` five times while the dev server ran, and counted `pg_stat_activity` connections after each health call.
 
+### Phase 3 notes
+
+- **Stylesheet location:** follows shadcn's monorepo convention instead of the original `src/styles.css` design.
+  - The shared stylesheet is `packages/ui/src/styles/globals.css`, exported as `@devmentor/ui/globals.css` and imported once by the root layout.
+  - It imports `tailwindcss`, `tw-animate-css` and `shadcn/tailwind.css`, registers `@source` for `packages/ui/src` and `packages/app/src`, and holds the theme.
+  - `packages/app` has no CSS file of its own, just `postcss.config.mjs` with `@tailwindcss/postcss`.
+- **components.json:** in `packages/app` and `packages/ui`, style `base-nova` (Base UI), base color `neutral`, icons `lucide`. Aliases resolve to `@devmentor/ui/...`.
+  - `packages/ui/tsconfig.json` maps `@devmentor/ui/*` to `./src/*` so the CLI can resolve them.
+  - `shadcn add button card`, run from `packages/app`, wrote the components to `packages/ui/src/components/`.
+- **`cn`:** the current registry imports `cn` from shadcn's `cn` package, which replaces clsx + tailwind-merge. `@devmentor/ui/lib/utils` re-exports it, and clsx/tailwind-merge were removed.
+- **Theme and dependencies:**
+  - `shadcn add` didn't install component dependencies or write the theme in this setup.
+  - `shadcn init` in `packages/app` would have overwritten the monorepo `components.json`, so I declined it.
+  - Instead I ran `shadcn init -b base -p nova` in a scratch Next app outside the repo, and copied its theme CSS and dependency list into `packages/ui`: `@base-ui/react`, `class-variance-authority`, `cn`, `lucide-react`, `tw-animate-css`, `shadcn`.
+- **Pages and layout:**
+  - Removed the starter (`backdrop.tsx`, `page.module.css`, `globals.css`).
+  - The root layout sets DevMentor metadata (title template `%s | DevMentor`) and Geist via `next/font/google`, as shadcn's init generates. Note that `next/font/google` downloads the font at build time.
+  - `(frontend)/page.tsx` is a Tailwind-only placeholder, statically prerendered.
+  - `(backend)/admin/layout.tsx` and `page.tsx` are dynamic, built with the Card and `buttonVariants`, and the admin pages are marked noindex.
+  - `server/health.ts` (`isDatabaseHealthy`) is shared by `/api/health` and `/admin`.
+- **Dev server cache:** after the root layout and its CSS were replaced, the running dev server kept serving the old root layout (title "Next.js starter"). Restarting it with a clean `.next` fixed this.
+- **Visual check:** done with headless Chromium (Playwright) in the job's tmp folder. The missing system libraries were extracted from Debian `.deb` files with `apt-get download` and `dpkg-deb -x`, with no root needed.
+
 ## Acceptance criteria
 
 - [ ] `npm install` at the root produces a single `package-lock.json`, with no lockfiles in packages.
 - [ ] `npm run lint`, `npm run typecheck` and `npm run build` pass from the root.
 - [ ] `npm run dev -- --hostname 0.0.0.0 --port 3000` (the `openmercato.toml` preview command) serves the app.
-- [ ] `/` renders a Tailwind-styled page, and `/admin` renders shadcn `Button` and `Card` from `@devmentor/ui` with correct styles.
+- [x] `/` renders a Tailwind-styled page, and `/admin` renders shadcn `Button` and `Card` from `@devmentor/ui` with correct styles.
 - [x] With PostgreSQL running, `GET /api/health` returns `200 {"status":"ok","db":"ok"}`. With the database stopped, it returns `503` without crashing the server.
 - [x] `npm run db:migration:create` and `npm run db:migrate` run against the local database.
 - [x] Repeated HMR reloads in dev don't grow the number of PostgreSQL connections (check `pg_stat_activity`).

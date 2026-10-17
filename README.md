@@ -2,7 +2,7 @@
 
 DevMentor is a Next.js + TypeScript + React application backed by PostgreSQL. It is organized as an npm-workspaces monorepo.
 
-> **Status:** monorepo migration in progress ([spec](.ai/specs/2026-10-17-monorepo-migration.md)). Phases 1–2 are done: the workspace and packages are in place, the app lives in `packages/app`, and the database and DI are wired at runtime (`GET /api/health`). Next is the UI (phase 3). `/` still shows the starter page.
+> **Status:** monorepo migration in progress ([spec](.ai/specs/2026-10-17-monorepo-migration.md)). Phases 1–3 are done: the workspace and packages are in place, the database and DI are wired at runtime (`GET /api/health`), and the UI is set up (`/` public placeholder, `/admin` shadcn dashboard). Phase 4 (close-out and full verification) remains.
 
 ## Tech stack
 
@@ -85,8 +85,8 @@ packages/app ── container.createScope() ──► scoped: EntityManager (orm
 | Frontend (public pages) | `packages/app/src/app/(frontend)/` | Tailwind CSS utilities |
 | Backend (admin pages, `/admin`) | `packages/app/src/app/(backend)/admin/` | shadcn/ui components from `@devmentor/ui` |
 
-- shadcn/ui components are generated into `packages/ui` with the shadcn CLI's monorepo support.
-- Both areas share one Tailwind CSS 4 configuration. The app registers `packages/ui` as a Tailwind source.
+- shadcn/ui components (style `base-nova`, built on Base UI) live in `packages/ui/src/components`. Add more by running `npx shadcn@latest add <component>` from `packages/app`.
+- Both areas share one Tailwind CSS 4 stylesheet, `@devmentor/ui/globals.css`, which holds the theme tokens and the `@source` entries for `packages/ui` and `packages/app`.
 
 ## Getting started
 
