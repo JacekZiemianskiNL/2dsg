@@ -1,32 +1,26 @@
+import { loadDatabaseEnv, type DatabaseConfig } from "@devmentor/db";
+import { z } from "zod";
+
+const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
+const appEnvSchema = z.object({
+  LOG_LEVEL: z.preprocess((value) => (value === "" ? undefined : value), z.enum(LOG_LEVELS).default("info")),
+});
+
 export interface AppConfig {
-  databaseUrl: string;
-  databasePool: { min: number; max: number };
-  /** How long to wait for a pooled connection before failing, in ms. */
-  databaseConnectTimeoutMs: number;
+  logLevel: LogLevel;
+  database: DatabaseConfig;
 }
 
-function readInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`Environment variable ${name} must be a non-negative integer, got "${raw}"`);
-  }
-  return value;
-}
-
-/** Reads and validates configuration from environment variables. */
-export function loadConfig(): AppConfig {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("Environment variable DATABASE_URL is required");
+/** Reads and validates all configuration from environment variables. */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const result = appEnvSchema.safeParse(env);
+  if (!result.success) {
+    throw new Error(`Invalid environment:\n${z.prettifyError(result.error)}`);
   }
   return {
-    databaseUrl,
-    databasePool: {
-      min: readInt("DATABASE_POOL_MIN", 2),
-      max: readInt("DATABASE_POOL_MAX", 10),
-    },
-    databaseConnectTimeoutMs: readInt("DATABASE_CONNECT_TIMEOUT_MS", 5000),
+    logLevel: result.data.LOG_LEVEL,
+    database: loadDatabaseEnv(env),
   };
 }

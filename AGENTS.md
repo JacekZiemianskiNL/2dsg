@@ -40,31 +40,46 @@ Run from the repo root:
 
 ```
 packages/
-├── app/   @devmentor/app   Next.js application: routes, pages, server actions, composition root
-├── core/  @devmentor/core  Framework-agnostic reusable logic: domain types, services, DI helpers, utilities
-├── db/    @devmentor/db    Data layer: MikroORM config, entities, repositories, migrations, seeders
-└── ui/    @devmentor/ui    Reusable React components: shadcn/ui components, Tailwind-based primitives
+├── app/   @devmentor/app   Next.js application: routes, pages, HTTP wiring only
+├── core/  @devmentor/core  Business layer: config, logger, DI container + Cradle, services
+├── db/    @devmentor/db    Persistence: database env, MikroORM config, entities, migrations
+└── ui/    @devmentor/ui    Presentation: shadcn/ui primitives and reusable React components
 ```
 
-- **Dependency direction:** `app` → `core`, `db`, `ui`; `db` → `core`; `ui` → `core` (types/utilities only); `core` → no internal packages. No cycles, and nothing imports from `app`.
+- **Dependency direction:** `app → core → db`, and `ui` is standalone, importable by `app` only.
+  - `app` imports `core` and `ui`, never `db`.
+  - `core` imports `db`.
+  - `db` and `ui` import no workspace package.
+  - Nothing imports `app`.
+  - ESLint enforces this (`no-restricted-imports`). Don't loosen it for convenience.
 - Import other packages only by package name (`@devmentor/db`) through their `exports`, never by relative path into another package (`../../db/src/...`).
-- Put code in the lowest package that can own it: no Next.js, React or MikroORM in `core`; no data access in `ui`; no business logic in `app` routes/pages beyond wiring.
+- **Layers don't leak:**
+  - Persistence stays in `db`, business rules in `core`, HTTP and rendering in `app`, presentation in `ui`.
+  - Only `db` imports `@mikro-orm/*`; the others use the types re-exported by `@devmentor/db`.
+  - `core` never imports Next.js or React.
+  - A page or route never issues a query; it calls a `core` service.
 - Internal packages ship TypeScript source (no build step); Turbopack transpiles workspace packages automatically. Each package has its own `package.json` (`"private": true`) and `tsconfig.json` extending a shared base.
 - Add a dependency to the package that uses it (`npm install <pkg> -w @devmentor/<name>`), not to the root. Only shared tooling belongs at the root.
 - A new package under `packages/` needs a spec and a README update.
 
 ## Data layer (`@devmentor/db`)
 
-- MikroORM code is server-only: never import `@devmentor/db` from Client Components (`"use client"`), and mark server entry points with `import 'server-only'`.
+- MikroORM code is server-only. `@devmentor/db` and `@devmentor/core` entry points start with `import "server-only"`, so never import them from Client Components (`"use client"`).
 - Define entities with `defineEntity` rather than decorators, so no `reflect-metadata` or decorator metadata is needed under SWC/Turbopack.
-- One `MikroORM` instance per process, created lazily and cached on `globalThis` so dev HMR doesn't open new pools. Configure the connection pool in the MikroORM config; the connection string comes from the `DATABASE_URL` env var.
+- One `MikroORM` instance per process, created lazily and cached on `globalThis` so dev HMR doesn't open new pools.
+  - Database settings come from env vars validated with Zod in `packages/db/src/env.ts`: `DATABASE_URL`, `DATABASE_POOL_MIN`/`MAX`, `DATABASE_CONNECT_TIMEOUT_MS`.
+  - The MikroORM CLI config reads them directly, and `core`'s `loadConfig()` composes them.
 - Every request or job uses its own forked `EntityManager` (`orm.em.fork()`), provided through the request's DI scope. Never use the global `em` directly.
 - Schema changes happen only through migrations in `packages/db/src/migrations`, generated with the MikroORM CLI and committed with the entity change. Never edit a migration that has been applied; add a new one. Don't use `schema:update` outside throwaway local databases.
 - If Next.js fails to bundle a MikroORM package, add it to `serverExternalPackages` in `packages/app/next.config.ts`.
 
 ## Dependency injection (Awilix)
 
-- The container is composed in one place: the composition root in `packages/app`. `core` and `db` export registration functions (e.g. `registerDb(container)`) instead of building their own containers.
+- The container lives in `packages/core/src/container/`:
+  - `container.ts` registers every dependency by hand, with no `loadModules` or auto-discovery.
+  - `cradle.ts` declares the `Cradle` type.
+  - A new dependency is one new explicit line in each.
+  - Routes and pages use `withScope(fn)` from `@devmentor/core`.
 - Lifetimes: process-wide resources (MikroORM instance, config, loggers) are `SINGLETON`. Anything that holds request state (`EntityManager`, repositories, current user) is `SCOPED`, resolved from `container.createScope()` per request, server action or job.
 - Services receive dependencies through their constructor or factory function. Don't resolve from the container inside business logic (no service locator), and don't import singletons directly where they should be injected.
 - Resolve the container only on the server (Route Handlers, Server Actions, Server Components, `proxy.ts`).

@@ -16,6 +16,8 @@
 
 Find the target PID first (`pgrep -af next-server`, then check `readlink /proc/<pid>/cwd` and the parent PID), and `kill <pid>`. Leave the pm2-managed preview server (parent `next dev` in `packages/app`) alone.
 
+**Follow-up (same day):** working directory isn't enough to identify a test server. Both the pm2 dev server and a `next start` test server run `next-server` from `packages/app`, and a cwd-based filter killed the dev server (pm2 restarted it). Identify the test server by its parent's command line instead: `for p in $(pgrep -f next-server); do pp=$(ps -o ppid= -p $p | tr -d ' '); tr '\0' ' ' < /proc/$pp/cmdline | grep -q -- "--port 3101" && echo $p; done`. Then kill its process group.
+
 ## Rule of thumb
 
-Never `pkill -f` a pattern that appears in your own command; kill by verified PID.
+Never `pkill -f` a pattern that appears in your own command. Kill by a PID verified through the parent command line (the port flag), not through cwd.

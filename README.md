@@ -13,7 +13,9 @@ DevMentor is a Next.js + TypeScript + React application backed by PostgreSQL. It
 | Language | TypeScript (strict) | |
 | Database | PostgreSQL | |
 | ORM | [MikroORM 7](https://mikro-orm.io) | Data Mapper, Unit of Work, migrations, connection pooling |
-| Dependency injection | [Awilix](https://github.com/jeffijoe/awilix) | One composition root, per-request scopes |
+| Dependency injection | [Awilix](https://github.com/jeffijoe/awilix) | One composition root in `core`, per-request scopes |
+| Validation | [Zod 4](https://zod.dev) | Env and (later) shared request schemas |
+| Logging | [pino](https://getpino.io) | Shared logger with secret redaction |
 | Frontend styling | [Tailwind CSS 4](https://tailwindcss.com) | Public-facing pages |
 | Backend UI | [shadcn/ui](https://ui.shadcn.com) | Admin/back-office pages, built on Tailwind |
 | Package manager | npm workspaces | Node.js >= 22.17 |
@@ -35,15 +37,14 @@ DevMentor is a Next.js + TypeScript + React application backed by PostgreSQL. It
 ### Package dependencies
 
 ```
-app ──┬──► db ──► core
-      ├──► ui ──► core
-      └──► core
+app ──► core ──► db
+ └────► ui
 ```
 
-- `app` depends on `core`, `db` and `ui`.
-- `db` depends on `core`.
-- `ui` depends only on `core` types and utilities.
-- `core` has no internal dependencies and stays free of Next.js, React and MikroORM.
+- `app` (HTTP and rendering) depends on `core` and `ui`, never directly on `db`.
+- `core` (business rules: config, logger, DI container, services) depends on `db`. It stays free of Next.js and React.
+- `db` (persistence) and `ui` (presentation) depend on no other workspace package. Only `db` imports MikroORM; it re-exports the types the others need.
+- ESLint enforces these boundaries.
 - Packages import each other by name (`@devmentor/db`) through their `exports`. Internal packages ship TypeScript source, and Turbopack transpiles them, so they have no separate build step.
 
 ## Architecture
@@ -54,16 +55,15 @@ app ──┬──► db ──► core
 HTTP request / Server Action / job
         │
         ▼
-packages/app ── container.createScope() ──► scoped: EntityManager (orm.em.fork()), repositories, current user
-        │                                    singleton: MikroORM instance (connection pool), config, logger
+packages/app route/page ── withScope() ──► scoped: EntityManager (orm.em.fork()), services
+        │                                 singleton: MikroORM instance (connection pool), config, logger
         ▼
-@devmentor/core services ──► @devmentor/db repositories ──► PostgreSQL
+@devmentor/core services ──► @devmentor/db (entities, queries) ──► PostgreSQL
 ```
 
 ### Dependency injection (Awilix)
 
-- The container is built once, in the composition root in `packages/app`.
-- `core` and `db` export registration functions, for example `registerDb(container)`, which the composition root calls. They don't build their own containers.
+- The container is built once, in `packages/core/src/container/container.ts`. Every dependency is registered there by hand, and `cradle.ts` declares the `Cradle` type.
 - Lifetimes:
   - **Singleton:** process-wide resources (MikroORM instance, configuration, logger).
   - **Scoped:** per request, server action or job (forked `EntityManager`, repositories, request context).
@@ -76,7 +76,7 @@ packages/app ── container.createScope() ──► scoped: EntityManager (orm
 - There is one MikroORM instance per process. It owns the connection pool and is cached on `globalThis` so dev hot reloads don't leak pools.
 - Each request works in its own forked `EntityManager`, which keeps the identity map and unit of work isolated.
 - Schema changes go through committed migrations in `packages/db/src/migrations`. Applied migrations are never edited.
-- Configuration comes from environment variables. `DATABASE_URL` is the PostgreSQL connection string; `.env*` files are git-ignored.
+- Configuration comes from environment variables, validated with Zod (see `.env.example`). `DATABASE_URL` is the PostgreSQL connection string, and `LOG_LEVEL` sets the pino level. `.env*` files are git-ignored.
 
 ### UI
 

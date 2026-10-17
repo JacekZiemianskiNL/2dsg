@@ -1,16 +1,16 @@
 import { defineConfig } from "@mikro-orm/postgresql";
 import { Migrator } from "@mikro-orm/migrations";
-import type { AppConfig } from "@devmentor/core";
 
 import { entities } from "./entities";
+import type { DatabaseConfig } from "./env";
 
 /** MikroORM options shared by the app runtime and the MikroORM CLI. */
-export function createOrmConfig(config: AppConfig) {
+export function createOrmConfig(config: DatabaseConfig) {
   return defineConfig({
-    clientUrl: config.databaseUrl,
-    pool: config.databasePool,
-    // Passed through to the `pg` Pool; without it, acquiring a connection waits forever when the database is down.
-    driverOptions: { connectionTimeoutMillis: config.databaseConnectTimeoutMs },
+    clientUrl: config.url,
+    pool: config.pool,
+    // Passed through to the `pg` Pool.
+    driverOptions: { connectionTimeoutMillis: config.connectTimeoutMs },
     entities,
     discovery: { warnWhenNoEntities: false },
     extensions: [Migrator],

@@ -19,12 +19,11 @@
     "migration:list": "mikro-orm migration:list"
   },
   "dependencies": {
-    "@devmentor/core": "*",
     "@mikro-orm/core": "^7.2.5",
     "@mikro-orm/migrations": "^7.2.5",
     "@mikro-orm/postgresql": "^7.2.5",
-    "awilix": "^13.0.5",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@mikro-orm/cli": "^7.2.5",

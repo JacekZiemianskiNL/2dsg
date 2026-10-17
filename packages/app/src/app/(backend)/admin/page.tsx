@@ -10,11 +10,11 @@ import {
   CardTitle,
 } from "@devmentor/ui/components/card";
 
-import { isDatabaseHealthy } from "@/server/health";
+import { withScope } from "@devmentor/core";
 
 export default async function AdminPage() {
   await connection();
-  const dbHealthy = await isDatabaseHealthy();
+  const dbHealthy = await withScope(({ healthService }) => healthService.isDatabaseAvailable());
 
   return (
     <div className="grid gap-6">

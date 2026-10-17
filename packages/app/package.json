@@ -11,9 +11,7 @@
   },
   "dependencies": {
     "@devmentor/core": "*",
-    "@devmentor/db": "*",
     "@devmentor/ui": "*",
-    "awilix": "^13.0.5",
     "next": "^16.4.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
