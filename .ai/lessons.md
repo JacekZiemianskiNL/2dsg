@@ -14,6 +14,7 @@ Long-term memory for LLM agents working in this repository. Read this file **bef
 Format: `- [YYYY-MM-DD] [Title](lessons/YYYY-MM-DD-slug.md) — one-line takeaway`
 
 <!-- Add new entries below this line, newest first -->
+- [2026-10-17] [agent-browser matches rendered text, not source text](lessons/2026-10-17-agent-browser-rendered-text.md): CSS `uppercase` changes what `wait --text` sees; local run recipe
 - [2026-10-17] [Don't cache the DI container on globalThis](lessons/2026-10-17-no-globalthis-container.md): bundles and HMR produce different class identities; only the pool goes on globalThis
 - [2026-10-17] [shadcn CLI in an existing npm-workspaces monorepo](lessons/2026-10-17-shadcn-cli-in-existing-monorepo.md): only `shadcn add` from packages/app; never `init`; check and install component deps
 - [2026-10-17] [Dev server keeps a stale root layout after replacing root files](lessons/2026-10-17-dev-server-stale-root-layout.md): restart with a clean .next after moving or deleting root app/ files

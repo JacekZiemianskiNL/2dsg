@@ -85,7 +85,7 @@ Done when the workflow file is valid and runs green on a PR (see phase 5).
 | Phase | Status | Notes |
 | --- | --- | --- |
 | 1 | Done 2026-10-17 | 150 tests in 29 files; 100% lines/branches/functions/statements over 43 tracked files. `validate` now runs `test:coverage`. See the phase 1 notes below. |
-| 2 | Not started | |
+| 2 | Done 2026-10-17 | 8 integration tests pass locally in 4s through `INTEGRATION_DATABASE_URL`, and throwaway databases and processes are cleaned up. A missing build and a missing Docker runtime both fail with clear errors. Testcontainers itself runs only in CI. |
 | 3 | Not started | |
 | 4 | Not started | |
 | 5 | Not started | |
@@ -104,6 +104,19 @@ Done when the workflow file is valid and runs green on a PR (see phase 5).
 - **Dead code removed:** the `?? ""` fallbacks in `CrudForm`, since every field is initialised in state.
 - **A claim I retracted:** I suspected `CrudForm`'s `isSubmitting` double-submit guard was ineffective and tried a ref. The regression test passed on the original code too (React flushes discrete events), so I reverted to the original guard and kept the test that covers it.
 - **Config:** the ESLint ignores include `coverage/**`, and the app tsconfig includes `test/setup-dom.ts` for the jest-dom matcher types.
+
+### Phase 2 notes
+
+- **Harness:**
+  - `test/integration/database.ts`: Testcontainers `postgres:17-alpine`, or a `devmentor_it_<hex>` database created on the `INTEGRATION_DATABASE_URL` server and dropped with `with (force)`.
+  - `app-server.ts`: checks the build exists, migrates through `npm run db:migrate`, and starts `next start` on a free port in its own process group, waiting for `/`. Stopping sends SIGTERM to the group, then SIGKILL after 10s.
+  - `browser.ts`: a typed wrapper around the agent-browser CLI with `--session <run id> --json`.
+  - `global-setup.ts`: provides `appUrl`, `databaseUrl` and `browserSession`, and tears everything down even when setup fails.
+- **Tests:**
+  - `health.test.ts`: the envelope, `no-store` and 405 over real HTTP, plus the `mikro_orm_migrations` table existing in the ephemeral database.
+  - `pages.test.ts`: `/` title, heading and rendered text; `/admin` Operational; clicking "View public site" returns to `/`.
+  - `database-outage.test.ts`: a second app on an unreachable database gives `/api/health` 503 without leaking details, `/` still renders, and `/admin` shows Unavailable.
+- **First run:** the `/` text assertion failed because CSS `uppercase` changes rendered text. Recorded as a lesson.
 
 ## Acceptance criteria
 
