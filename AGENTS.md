@@ -52,6 +52,7 @@ Run from the repo root:
     - Changes land only through a PR; never push directly to `main`, and never force-push or delete it.
     - A new or renamed CI job must also be added to the required checks.
   - When you add or rename a gate script, update the workflow in the same change.
+- **Git over HTTPS in the sandbox:** `GIT_SSL_CAINFO`, `CURL_CA_BUNDLE` and `SSL_CERT_FILE` are exported empty, which breaks `git push` and anything that clones (e.g. `npx skills add`). Prefix the command with `GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt`; see `.ai/lessons/2026-10-18-git-push-empty-ssl-cainfo.md`.
 - **Running app:** for UI or behavior changes, also check it.
   - `npm run dev` starts it; in this sandbox, the pm2 `workspace-preview` process serves it on port 3000.
   - Use `GET /api/health` for the database.
