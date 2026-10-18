@@ -15,6 +15,7 @@ Format: `- [YYYY-MM-DD] [Title](lessons/YYYY-MM-DD-slug.md) — one-line takeawa
 
 <!-- Add new entries below this line, newest first -->
 - [2026-10-18] [git push fails on the SSL CA cert in the sandbox](lessons/2026-10-18-git-push-empty-ssl-cainfo.md): `GIT_SSL_CAINFO` is exported empty; set it to `/etc/ssl/certs/ca-certificates.crt`
+- [2026-10-17] [`node --env-file --run` doesn't pass the file's variables to the npm script](lessons/2026-10-17-node-env-file-run.md): spawn through a `process.loadEnvFile()` wrapper instead
 - [2026-10-17] [The om-* agent skills need `jq`, which the sandbox lacks](lessons/2026-10-17-om-skills-need-jq.md): read `.ai/agentic.config.json` with `node -p` or `gh --jq` instead
 - [2026-10-17] [agent-browser matches rendered text, not source text](lessons/2026-10-17-agent-browser-rendered-text.md): CSS `uppercase` changes what `wait --text` sees; local run recipe
 - [2026-10-17] [Don't cache the DI container on globalThis](lessons/2026-10-17-no-globalthis-container.md): bundles and HMR produce different class identities; only the pool goes on globalThis
