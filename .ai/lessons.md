@@ -14,6 +14,7 @@ Long-term memory for LLM agents working in this repository. Read this file **bef
 Format: `- [YYYY-MM-DD] [Title](lessons/YYYY-MM-DD-slug.md) — one-line takeaway`
 
 <!-- Add new entries below this line, newest first -->
+- [2026-10-18] [The DI container can't be built without the database](lessons/2026-10-18-container-requires-database.md): `getContainer()` connects the ORM first, so code that must work during an outage (session checks) needs its own module-cached factory
 - [2026-10-18] [git push fails on the SSL CA cert in the sandbox](lessons/2026-10-18-git-push-empty-ssl-cainfo.md): `GIT_SSL_CAINFO` is exported empty; set it to `/etc/ssl/certs/ca-certificates.crt`
 - [2026-10-17] [`node --env-file --run` doesn't pass the file's variables to the npm script](lessons/2026-10-17-node-env-file-run.md): spawn through a `process.loadEnvFile()` wrapper instead
 - [2026-10-17] [The om-* agent skills need `jq`, which the sandbox lacks](lessons/2026-10-17-om-skills-need-jq.md): read `.ai/agentic.config.json` with `node -p` or `gh --jq` instead
